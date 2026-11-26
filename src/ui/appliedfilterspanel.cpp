@@ -175,6 +175,7 @@ void AppliedFiltersPanel::loadJson() {
                                                    tr("JSON (*.json);;All files (*)"));
     if (f.isEmpty()) return;
     QFile file(f);
+    if (file.size() > 2LL * 1024 * 1024) return;   // bound untrusted JSON size
     if (!file.open(QIODevice::ReadOnly)) return;
     QJsonParseError err;
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
@@ -184,8 +185,10 @@ void AppliedFiltersPanel::loadJson() {
 }
 
 void AppliedFiltersPanel::applyJson() {
+    const QString text = jsonView_->toPlainText();
+    if (text.size() > 2 * 1024 * 1024) return;   // bound untrusted JSON size
     QJsonParseError err;
-    const QJsonDocument doc = QJsonDocument::fromJson(jsonView_->toPlainText().toUtf8(), &err);
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) return;
     FilterModel m;
     if (filterFromJson(doc.object(), m)) emit modelLoaded(m);

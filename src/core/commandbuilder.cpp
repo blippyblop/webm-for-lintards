@@ -2,6 +2,7 @@
 #include "sizecalc.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cmath>
 #include <sstream>
@@ -58,6 +59,41 @@ std::string escapeDrawtext(const std::string& in) {
             case '%':  out += "\\%"; break;
             default:   out += c; break;
         }
+    }
+    return out;
+}
+
+// --- Sanitisers (defence in depth against untrusted names/JSON) ---
+bool safeFilterPath(const std::string& p) {
+    if (p.empty() || p.size() > 4096) return false;
+    for (unsigned char c : p) {
+        if (c < 0x20 || c == 0x7f || c == '\'') return false;  // control chars / quote breakout
+    }
+    return true;
+}
+
+std::string safeColor(const std::string& c) {
+    if (c.empty() || c.size() > 32) return std::string();
+    for (unsigned char ch : c) {
+        if (!(std::isalnum(ch) || ch == '#')) return std::string();
+    }
+    return c;
+}
+
+std::string safeAlgo(const std::string& a) {
+    if (a == "bicubic" || a == "bilinear" || a == "lanczos" || a == "neighbor") return a;
+    return "bicubic";
+}
+
+std::string stripControls(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        // drop control chars, quote/backslash (ffmpeg single-quote breakout) for drawtext
+        if (c < 0x20 || c == 0x7f || c == '\'' || c == '\\')
+            out.push_back(' ');
+        else
+            out.push_back(static_cast<char>(c));
     }
     return out;
 }
@@ -265,7 +301,7 @@ std::string CommandBuilder::videoFilterGraph() const {
     std::vector<std::string> chain;
     if (f_.stabilization.enabled) {
         const auto& s = f_.stabilization;
-        chain.push_back("vidstabtransform=input=transforms.trf:interpol=" +
+        chain.push_back("vidstabtransform=input=.webmforlintards_transforms.trf:interpol=" +
                         std::to_string(s.interpol) + ":zoom=" + std::to_string(s.zoom) +
                         ":smoothing=" + std::to_string(s.smoothing) +
                         ":maxangle=0:maxshift=-1");
@@ -298,7 +334,7 @@ std::string CommandBuilder::videoFilterGraph() const {
     }
 
     if (f_.resizeEnabled && f_.resizeW > 0 && f_.resizeH > 0) {
-        std::string algo = f_.resizeAlgo.empty() ? "bicubic" : f_.resizeAlgo;
+        const std::string algo = safeAlgo(f_.resizeAlgo);
         chain.push_back("scale=" + std::to_string(f_.resizeW) + ":" +
                         std::to_string(f_.resizeH) + ":flags=" + algo);
     }
@@ -323,15 +359,17 @@ std::string CommandBuilder::videoFilterGraph() const {
                         ":contrast=" + num(f_.eq.contrast));
     }
 
-    if (f_.subtitle.enabled && !f_.subtitle.path.empty()) {
+    if (f_.subtitle.enabled && safeFilterPath(f_.subtitle.path)) {
         chain.push_back("subtitles=" + quoteFilterValue(f_.subtitle.path));
     }
 
     if (f_.caption.enabled && !f_.caption.text.empty()) {
-        std::string d = "drawtext=text='" + escapeDrawtext(f_.caption.text) + "'";
-        d += ":fontcolor=" + f_.caption.color;
+        const std::string color = safeColor(f_.caption.color).empty() ? "white" : safeColor(f_.caption.color);
+        const std::string border = safeColor(f_.caption.borderColor).empty() ? "black" : safeColor(f_.caption.borderColor);
+        std::string d = "drawtext=text='" + escapeDrawtext(stripControls(f_.caption.text)) + "'";
+        d += ":fontcolor=" + color;
         d += ":fontsize=" + std::to_string(f_.caption.fontSize);
-        d += ":borderw=2:bordercolor=" + f_.caption.borderColor;
+        d += ":borderw=2:bordercolor=" + border;
         d += ":x=" + std::to_string(f_.caption.x) + ":y=" + std::to_string(f_.caption.y);
         if (f_.caption.end > f_.caption.start) {
             d += ":enable='between(t," + num(f_.caption.start) + "," + num(f_.caption.end) + ")'";
@@ -358,7 +396,7 @@ std::string CommandBuilder::videoFilterGraph() const {
     }
 
     // --- Overlay (movie source) ---
-    if (f_.overlay.enabled && !f_.overlay.imagePath.empty()) {
+    if (f_.overlay.enabled && safeFilterPath(f_.overlay.imagePath)) {
         graph += "movie=" + quoteFilterValue(f_.overlay.imagePath) + "[wm];" + cur +
                  "[wm]overlay=" + std::to_string(f_.overlay.x) + ":" + std::to_string(f_.overlay.y) +
                  ":shortest=1[v1];";
@@ -588,7 +626,7 @@ std::vector<PassPlan> CommandBuilder::build(const std::string& inputPath,
         det.args.push_back("-vf");
         det.args.push_back(std::string("vidstabdetect=stepsize=2:shakiness=") +
                            std::to_string(f_.stabilization.shakiness) + ":accuracy=" +
-                           std::to_string(f_.stabilization.accuracy) + ":result=transforms.trf");
+                           std::to_string(f_.stabilization.accuracy) + ":result=.webmforlintards_transforms.trf");
         det.args.push_back("-f");
         det.args.push_back("null");
         det.args.push_back("-");

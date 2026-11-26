@@ -10,6 +10,7 @@
 #include <QImage>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <algorithm>
@@ -19,14 +20,20 @@ namespace wc {
 
 PreviewEngine::PreviewEngine(QObject* parent)
     : QObject(parent), cache_(new FrameCache) {
-    // Transient, per-engine cache under the system temp dir. It is deleted when
-    // a new input is loaded and when the engine is destroyed (app/dialog close).
-    tempRoot_ = QDir::tempPath() + QStringLiteral("/webmforlintards_preview_") +
-                QString::number(static_cast<qulonglong>(QCoreApplication::applicationPid())) +
-                QLatin1Char('_') +
-                QString::number(reinterpret_cast<quintptr>(this), 16);
-    QDir(tempRoot_).removeRecursively();
-    QDir().mkpath(tempRoot_);
+    // Transient cache in a *secure* (0700, random name) temp dir. QTemporaryDir
+    // removes it on destruction; we also clear it when a new input is loaded.
+    tempDir_ = new QTemporaryDir(QDir::tempPath() + QStringLiteral("/webmforlintards_preview_XXXXXX"));
+    if (tempDir_->isValid()) {
+        tempRoot_ = tempDir_->path();
+    } else {
+        // Fallback (shouldn't happen): unique-ish path, locked down.
+        tempRoot_ = QDir::tempPath() + QStringLiteral("/webmforlintards_preview_") +
+                    QString::number(static_cast<qulonglong>(QCoreApplication::applicationPid())) +
+                    QLatin1Char('_') + QString::number(reinterpret_cast<quintptr>(this), 16);
+        QDir().mkpath(tempRoot_);
+        QFile::setPermissions(tempRoot_, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                             QFileDevice::ExeOwner);
+    }
 
     burstTimer_ = new QTimer(this);
     burstTimer_->setSingleShot(true);
@@ -39,7 +46,7 @@ PreviewEngine::PreviewEngine(QObject* parent)
 PreviewEngine::~PreviewEngine() {
     cancel();
     delete cache_;
-    if (!tempRoot_.isEmpty()) QDir(tempRoot_).removeRecursively();
+    delete tempDir_;   // auto-removes the tree
 }
 
 void PreviewEngine::setSource(const QString& path, const VideoInfo& info) {
@@ -66,6 +73,8 @@ void PreviewEngine::setSource(const QString& path, const VideoInfo& info) {
             .toHex());
     cacheRoot_ = tempRoot_ + QLatin1Char('/') + key;
     QDir().mkpath(cacheRoot_);
+    QFile::setPermissions(cacheRoot_, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                           QFileDevice::ExeOwner);
 }
 
 void PreviewEngine::clear() {
@@ -106,9 +115,17 @@ QString PreviewEngine::diskPath(const QString& vf, int frame) const {
 
 bool PreviewEngine::loadFromDisk(const QString& vf, int frame, QImage& out) const {
     const QString p = diskPath(vf, frame);
-    if (p.isEmpty() || !QFile::exists(p)) return false;
+    if (p.isEmpty()) return false;
+    const QFileInfo fi(p);
+    // Only trust regular, non-symlink files of sane size that we can have written
+    // inside our 0700 temp tree.
+    if (!fi.exists() || !fi.isFile() || fi.isSymLink()) return false;
+    if (fi.size() <= 0 || fi.size() > 32LL * 1024 * 1024) return false;
     QImage img(p);
-    if (img.isNull()) return false;
+    if (img.isNull()) {
+        QFile::remove(p);
+        return false;
+    }
     out = img;
     return true;
 }
@@ -116,7 +133,9 @@ bool PreviewEngine::loadFromDisk(const QString& vf, int frame, QImage& out) cons
 void PreviewEngine::saveToDisk(const QString& vf, int frame, const QImage& img) const {
     const QString p = diskPath(vf, frame);
     if (p.isEmpty() || img.isNull()) return;
-    QDir().mkpath(QFileInfo(p).absolutePath());
+    const QString dir = QFileInfo(p).absolutePath();
+    QDir().mkpath(dir);
+    QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
     img.save(p, "JPEG", 90);
 }
 
@@ -285,7 +304,11 @@ void PreviewEngine::onBurstFinished(int exitCode, QProcess::ExitStatus status) {
     const QStringList files = dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files, QDir::Name);
     for (int i = 0; i < files.size() && i < burstCount_; ++i) {
         const int frame = burstStart_ + i;
-        QImage img(dir.filePath(files[i]));
+        const QFileInfo bfi(dir.filePath(files[i]));
+        QImage img;
+        if (bfi.isFile() && !bfi.isSymLink() && bfi.size() > 0 &&
+            bfi.size() <= 32LL * 1024 * 1024)
+            img = QImage(dir.filePath(files[i]));
         if (!img.isNull()) {
             if (!cache_->contains(frame)) cache_->insert(frame, img);
             saveToDisk(burstVf_, frame, img);

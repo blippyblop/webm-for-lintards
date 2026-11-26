@@ -3,6 +3,9 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
+#include <algorithm>
+#include <cctype>
+
 // Serialisation is *minimal*: only filters that are actually active are
 // written. Presence of an object implies the filter is enabled; an absent key
 // means "no filter for that option". This keeps saved JSON short and readable.
@@ -14,6 +17,24 @@ QJsonObject trimObj(const TrimRange& t) {
     o["start"] = t.start;
     o["end"] = t.end;
     return o;
+}
+
+// --- untrusted-input sanitisers ---
+std::string safePath(std::string p) {
+    if (p.size() > 4096) return std::string();
+    for (unsigned char c : p)
+        if (c < 0x20 || c == 0x7f || c == '\'') return std::string();
+    return p;
+}
+std::string safeColor(std::string c, const char* fallback) {
+    if (c.empty() || c.size() > 32) return fallback;
+    for (unsigned char ch : c)
+        if (!(std::isalnum(ch) || ch == '#')) return fallback;
+    return c;
+}
+std::string safeAlgo(std::string a) {
+    if (a == "bicubic" || a == "bilinear" || a == "lanczos" || a == "neighbor") return a;
+    return "bicubic";
 }
 } // namespace
 
@@ -153,8 +174,10 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
     }
     if (o.contains("multiTrim") && o["multiTrim"].isArray()) {
         for (const QJsonValue& v : o["multiTrim"].toArray()) {
+            if (m.multiTrim.size() >= 2000) break;
             const QJsonObject t = v.toObject();
-            m.multiTrim.push_back(TrimRange{rd(t, "start", 0.0), rd(t, "end", 0.0)});
+            m.multiTrim.push_back(TrimRange{std::max(0.0, rd(t, "start", 0.0)),
+                                            std::max(0.0, rd(t, "end", 0.0))});
         }
     }
     if (o.contains("crop") && o["crop"].isObject()) {
@@ -175,11 +198,15 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
     if (o.contains("resize") && o["resize"].isObject()) {
         const QJsonObject r = o["resize"].toObject();
         m.resizeEnabled = rb(r, "enabled", true);
-        m.resizeW = ri(r, "w", 0); m.resizeH = ri(r, "h", 0);
-        m.resizeAlgo = rs(r, "algo"); if (m.resizeAlgo.empty()) m.resizeAlgo = "bicubic";
+        m.resizeW = std::clamp(ri(r, "w", 0), 0, 32768);
+        m.resizeH = std::clamp(ri(r, "h", 0), 0, 32768);
+        m.resizeAlgo = safeAlgo(rs(r, "algo"));
     }
-    m.rotateDegrees = ri(o, "rotateDegrees", 0);
-    if (o.contains("rateFps")) m.rateFps = ri(o, "rateFps", 0);
+    {
+        int rot = ((ri(o, "rotateDegrees", 0) % 360) + 360) % 360;
+        m.rotateDegrees = (rot == 90 || rot == 180 || rot == 270) ? rot : 0;
+    }
+    if (o.contains("rateFps")) m.rateFps = std::clamp(ri(o, "rateFps", 0), 1, 1000);
 
     if (o.contains("dynamicRate") && o["dynamicRate"].isObject()) {
         const QJsonObject d = o["dynamicRate"].toObject();
@@ -187,34 +214,42 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
         m.dynamicRateSmoothing = rb(d, "smoothing", true);
         m.dynamicRateSmoothingOverlap = rd(d, "overlap", 0.5);
         for (const QJsonValue& v : d["keyframes"].toArray()) {
+            if (m.dynamicRate.size() >= 2000) break;
             const QJsonObject k = v.toObject();
-            m.dynamicRate.push_back(KeyframeRate{rd(k, "time", 0.0), rd(k, "rate", 1.0)});
+            m.dynamicRate.push_back(KeyframeRate{std::max(0.0, rd(k, "time", 0.0)),
+                                                 std::clamp(rd(k, "rate", 1.0), 0.01, 1000.0)});
         }
+        m.dynamicRateSmoothingOverlap = std::clamp(m.dynamicRateSmoothingOverlap, 0.0, 60.0);
     }
     if (o.contains("caption") && o["caption"].isObject()) {
         const QJsonObject c = o["caption"].toObject();
         m.caption.enabled = rb(c, "enabled", true);
         m.caption.text = rs(c, "text");
+        if (m.caption.text.size() > 5000) m.caption.text.resize(5000);
         m.caption.fontFamily = rs(c, "fontFamily"); if (m.caption.fontFamily.empty()) m.caption.fontFamily = "sans";
-        m.caption.fontSize = ri(c, "fontSize", 24);
-        m.caption.x = ri(c, "x", 0); m.caption.y = ri(c, "y", 0);
-        m.caption.start = rd(c, "start", 0.0); m.caption.end = rd(c, "end", 0.0);
-        m.caption.color = rs(c, "color"); if (m.caption.color.empty()) m.caption.color = "white";
-        m.caption.borderColor = rs(c, "borderColor"); if (m.caption.borderColor.empty()) m.caption.borderColor = "black";
+        m.caption.fontSize = std::clamp(ri(c, "fontSize", 24), 1, 1000);
+        m.caption.x = std::clamp(ri(c, "x", 0), -100000, 100000);
+        m.caption.y = std::clamp(ri(c, "y", 0), -100000, 100000);
+        m.caption.start = std::max(0.0, rd(c, "start", 0.0));
+        m.caption.end = std::max(0.0, rd(c, "end", 0.0));
+        m.caption.color = safeColor(rs(c, "color"), "white");
+        m.caption.borderColor = safeColor(rs(c, "borderColor"), "black");
     }
     if (o.contains("subtitle") && o["subtitle"].isObject()) {
         const QJsonObject s = o["subtitle"].toObject();
         m.subtitle.enabled = rb(s, "enabled", true);
-        m.subtitle.streamIndex = ri(s, "streamIndex", -1);
-        m.subtitle.path = rs(s, "path");
+        m.subtitle.streamIndex = std::clamp(ri(s, "streamIndex", -1), -1, 100000);
+        m.subtitle.path = safePath(rs(s, "path"));
         m.subtitle.burnIn = rb(s, "burnIn", true);
     }
     if (o.contains("overlay") && o["overlay"].isObject()) {
         const QJsonObject v = o["overlay"].toObject();
         m.overlay.enabled = rb(v, "enabled", true);
-        m.overlay.imagePath = rs(v, "imagePath");
-        m.overlay.x = ri(v, "x", 0); m.overlay.y = ri(v, "y", 0);
-        m.overlay.start = rd(v, "start", 0.0); m.overlay.end = rd(v, "end", 0.0);
+        m.overlay.imagePath = safePath(rs(v, "imagePath"));
+        m.overlay.x = std::clamp(ri(v, "x", 0), -100000, 100000);
+        m.overlay.y = std::clamp(ri(v, "y", 0), -100000, 100000);
+        m.overlay.start = std::max(0.0, rd(v, "start", 0.0));
+        m.overlay.end = std::max(0.0, rd(v, "end", 0.0));
     }
     if (o.contains("fade") && o["fade"].isObject()) {
         const QJsonObject v = o["fade"].toObject();
@@ -229,25 +264,25 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
         m.eq.contrast = rd(v, "contrast", 1.0);
     }
     m.denoise = rb(o, "denoise", false);
-    m.denoiseStrength = ri(o, "denoiseStrength", 0);
+    m.denoiseStrength = std::clamp(ri(o, "denoiseStrength", 0), 0, 2);
     m.deinterlace = rb(o, "deinterlace", false);
-    m.delayAudioMs = ri(o, "delayAudioMs", 0);
+    m.delayAudioMs = std::clamp(ri(o, "delayAudioMs", 0), 0, 600000);
     m.reverse = rb(o, "reverse", false);
     m.loop = rb(o, "loop", false);
 
     if (o.contains("stabilization") && o["stabilization"].isObject()) {
         const QJsonObject s = o["stabilization"].toObject();
         m.stabilization.enabled = rb(s, "enabled", true);
-        m.stabilization.shakiness = ri(s, "shakiness", 5);
-        m.stabilization.accuracy = ri(s, "accuracy", 15);
-        m.stabilization.smoothing = ri(s, "smoothing", 10);
-        m.stabilization.zoom = ri(s, "zoom", 0);
-        m.stabilization.interpol = ri(s, "interpol", 2);
+        m.stabilization.shakiness = std::clamp(ri(s, "shakiness", 5), 1, 10);
+        m.stabilization.accuracy = std::clamp(ri(s, "accuracy", 15), 1, 15);
+        m.stabilization.smoothing = std::clamp(ri(s, "smoothing", 10), 1, 30);
+        m.stabilization.zoom = std::clamp(ri(s, "zoom", 0), 0, 20);
+        m.stabilization.interpol = std::clamp(ri(s, "interpol", 2), 0, 3);
     }
     if (o.contains("grid") && o["grid"].isObject()) {
         const QJsonObject g = o["grid"].toObject();
         m.grid.enabled = rb(g, "enabled", true);
-        m.grid.otherFile = rs(g, "otherFile");
+        m.grid.otherFile = safePath(rs(g, "otherFile"));
         m.grid.vertical = rb(g, "vertical", false);
     }
 

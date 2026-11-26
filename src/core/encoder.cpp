@@ -203,22 +203,35 @@ void Encoder::cleanupArtifacts()
     // Delete any two-pass log files referenced by the pass plans, plus the
     // vid.stab transform file, so encoding leaves no stray *.log files behind.
     QSet<QString> bases;
+    bool usedVidstab = false;
     for (const PassPlan& plan : passes_) {
         for (std::size_t i = 0; i + 1 < plan.args.size(); ++i) {
             if (plan.args[i] == "-passlogfile")
                 bases.insert(QString::fromStdString(plan.args[i + 1]));
+            if (plan.args[i].find("vidstabdetect") != std::string::npos ||
+                plan.args[i].find("vidstabtransform") != std::string::npos)
+                usedVidstab = true;
         }
     }
     for (const QString& base : bases) {
         QFile::remove(base);
         const QFileInfo fi(base);
-        QDir dir = fi.absoluteDir();
+        const QDir dir = fi.absoluteDir();
         const QString prefix = fi.fileName();
-        const QStringList files = dir.entryList({prefix + QStringLiteral("*")}, QDir::Files);
-        for (const QString& f : files)
-            QFile::remove(dir.filePath(f));
+        // Literal prefix matching (no glob metacharacters) and only ffmpeg's
+        // own "-N.log" style suffixes, so a file name containing '*'/'?' cannot
+        // cause deletion of unrelated files.
+        const QFileInfoList entries = dir.entryInfoList(QDir::Files);
+        for (const QFileInfo& e : entries) {
+            const QString name = e.fileName();
+            if (!name.startsWith(prefix)) continue;
+            const QString rest = name.mid(prefix.size());
+            if (rest.isEmpty() || rest == QStringLiteral(".log") || rest.startsWith(QLatin1Char('-')))
+                QFile::remove(e.absoluteFilePath());
+        }
     }
-    QFile::remove(QStringLiteral("transforms.trf"));
+    if (usedVidstab)
+        QFile::remove(QStringLiteral(".webmforlintards_transforms.trf"));
 }
 
 void Encoder::onStdErr()

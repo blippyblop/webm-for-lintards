@@ -331,7 +331,7 @@ static void testBuilderStabilization() {
     CHECK(p.size() == 2);                       // detect pass + encode pass
     CHECK(p[0].isAnalysisPass);
     CHECK(hasSubstr(p[0].args, "vidstabdetect="));
-    CHECK(hasSubstr(p[1].args, "vidstabtransform=input=transforms.trf"));
+    CHECK(hasSubstr(p[1].args, "vidstabtransform=input=.webmforlintards_transforms.trf"));
 }
 
 static void testBuilderGrid() {
