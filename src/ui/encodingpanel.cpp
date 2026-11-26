@@ -14,8 +14,12 @@
 namespace wc {
 
 EncodingPanel::EncodingPanel(QWidget* parent) : QWidget(parent) {
+    videoTab_ = new QWidget(this);
+    audioTab_ = new QWidget(this);
+    metadataTab_ = new QWidget(this);
+
     // --- Output / video ---
-    auto* outGroup = new QGroupBox(tr("Encoding"), this);
+    auto* outGroup = new QGroupBox(tr("Encoding"), videoTab_);
     auto* form = new QFormLayout(outGroup);
 
     format_ = new QComboBox(outGroup);
@@ -65,7 +69,7 @@ EncodingPanel::EncodingPanel(QWidget* parent) : QWidget(parent) {
     form->addRow(tr("Target FPS"), targetFps_);
 
     // --- Audio ---
-    auto* audioGroup = new QGroupBox(tr("Audio"), this);
+    auto* audioGroup = new QGroupBox(tr("Audio"), audioTab_);
     auto* aform = new QFormLayout(audioGroup);
 
     disableAudio_ = new QCheckBox(tr("No audio"), audioGroup);
@@ -90,18 +94,26 @@ EncodingPanel::EncodingPanel(QWidget* parent) : QWidget(parent) {
     aform->addRow(mono_);
 
     // --- Metadata ---
-    auto* metaGroup = new QGroupBox(tr("Metadata"), this);
+    auto* metaGroup = new QGroupBox(tr("Metadata"), metadataTab_);
     auto* mform = new QFormLayout(metaGroup);
     title_ = new QLineEdit(metaGroup);
     title_->setPlaceholderText(tr("optional container title"));
     mform->addRow(tr("Title"), title_);
 
-    auto* layout = new QVBoxLayout(this);
-    layout->addWidget(outGroup);
-    layout->addWidget(audioGroup);
-    layout->addWidget(metaGroup);
-    layout->addStretch(1);
-    layout->setContentsMargins(0, 0, 0, 0);
+    auto* vl = new QVBoxLayout(videoTab_);
+    vl->addWidget(outGroup);
+    vl->addStretch(1);
+    vl->setContentsMargins(6, 6, 6, 6);
+
+    auto* al = new QVBoxLayout(audioTab_);
+    al->addWidget(audioGroup);
+    al->addStretch(1);
+    al->setContentsMargins(6, 6, 6, 6);
+
+    auto* ml = new QVBoxLayout(metadataTab_);
+    ml->addWidget(metaGroup);
+    ml->addStretch(1);
+    ml->setContentsMargins(6, 6, 6, 6);
 
     // Defaults.
     EncodingOptions def;
@@ -232,5 +244,9 @@ EncodingOptions EncodingPanel::options() const {
     o.title = title_->text().toStdString();
     return o;
 }
+
+QWidget* EncodingPanel::videoTab() { return videoTab_; }
+QWidget* EncodingPanel::audioTab() { return audioTab_; }
+QWidget* EncodingPanel::metadataTab() { return metadataTab_; }
 
 } // namespace wc

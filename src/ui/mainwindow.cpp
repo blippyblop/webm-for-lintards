@@ -123,32 +123,38 @@ void MainWindow::buildUi() {
     lv->addWidget(canvas_, 1);
     lv->addWidget(timeline_);
 
-    auto* outRow = new QHBoxLayout;
-    outRow->addWidget(new QLabel(tr("Output:"), left));
+    auto* ioRow = new QHBoxLayout;
+    ioRow->addWidget(new QLabel(tr("Input:"), left));
+    inputEdit_ = new QLineEdit(left);
+    inputEdit_->setPlaceholderText(tr("no input selected"));
+    ioRow->addWidget(inputEdit_, 1);
+    auto* browseIn = new QPushButton(tr("Browse…"), left);
+    ioRow->addWidget(browseIn);
+    ioRow->addSpacing(12);
+    ioRow->addWidget(new QLabel(tr("Output:"), left));
     outputEdit_ = new QLineEdit(left);
-    outRow->addWidget(outputEdit_, 1);
+    ioRow->addWidget(outputEdit_, 1);
     auto* browseOut = new QPushButton(tr("Browse…"), left);
-    outRow->addWidget(browseOut);
+    ioRow->addWidget(browseOut);
+    ioRow->addSpacing(8);
     convertBtn_ = new QPushButton(tr("Convert"), left);
     convertBtn_->setDefault(true);
-    outRow->addWidget(convertBtn_);
-    lv->addLayout(outRow);
+    ioRow->addWidget(convertBtn_);
+    lv->addLayout(ioRow);
 
-    auto* rightScroll = new QScrollArea(hsplit);
-    rightScroll->setWidgetResizable(true);
-    auto* right = new QWidget(rightScroll);
-    auto* rv = new QVBoxLayout(right);
-    filterPanel_ = new FilterPanel(right);
-    encodingPanel_ = new EncodingPanel(right);
-    rv->addWidget(filterPanel_);
-    rv->addWidget(encodingPanel_);
-    rv->addStretch(1);
-    rightScroll->setWidget(right);
-    rightScroll->setMinimumWidth(340);
-    rightScroll->setMaximumWidth(480);
+    // Right side: flat tabs Filters / Encoding / Audio / Metadata.
+    auto* optionsTabs = new QTabWidget(hsplit);
+    filterPanel_ = new FilterPanel(optionsTabs);
+    encodingPanel_ = new EncodingPanel(optionsTabs);
+    optionsTabs->addTab(filterPanel_, tr("Filters"));
+    optionsTabs->addTab(encodingPanel_->videoTab(), tr("Encoding"));
+    optionsTabs->addTab(encodingPanel_->audioTab(), tr("Audio"));
+    optionsTabs->addTab(encodingPanel_->metadataTab(), tr("Metadata"));
+    optionsTabs->setMinimumWidth(360);
+    optionsTabs->setMaximumWidth(520);
 
     hsplit->addWidget(left);
-    hsplit->addWidget(rightScroll);
+    hsplit->addWidget(optionsTabs);
     hsplit->setStretchFactor(0, 1);
     hsplit->setStretchFactor(1, 0);
 
@@ -227,6 +233,11 @@ void MainWindow::buildUi() {
 
     // ---------------- signal wiring ----------------
     connect(convertBtn_, &QPushButton::clicked, this, &MainWindow::onEncodeClicked);
+    connect(browseIn, &QPushButton::clicked, this, &MainWindow::openFile);
+    connect(inputEdit_, &QLineEdit::editingFinished, this, [this]() {
+        const QString p = inputEdit_->text().trimmed();
+        if (!p.isEmpty() && p != inputPath_ && QFileInfo::exists(p)) loadFile(p);
+    });
     connect(browseOut, &QPushButton::clicked, this, [this]() {
         const QString f = QFileDialog::getSaveFileName(
             this, tr("Save output"), outputEdit_->text(), tr("Video (*.webm *.mp4);;All files (*)"));
@@ -304,6 +315,7 @@ void MainWindow::loadFile(const QString& path) {
 
     info_ = vi;
     inputPath_ = path;
+    if (inputEdit_) inputEdit_->setText(path);
     resetFiltersForNewFile();
     encoding_ = encodingPanel_->options();
 
@@ -424,7 +436,7 @@ void MainWindow::onFilterClicked(FilterKind kind) {
     };
 
     switch (kind) {
-        case FilterKind::Trim: { TrimDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Trim: { TrimDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::MultiTrim: { MultiTrimDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Crop: { CropDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Resize: { ResizeDialog d(filters_, info_, this); run(d); } break;
@@ -452,6 +464,10 @@ QString MainWindow::defaultOutputPath() const {
 }
 
 void MainWindow::onEncodeClicked() {
+    if (inputEdit_) {
+        const QString p = inputEdit_->text().trimmed();
+        if (!p.isEmpty() && p != inputPath_ && QFileInfo::exists(p)) loadFile(p);
+    }
     if (inputPath_.isEmpty()) {
         showError(tr("No input"), tr("Load a video first (File > Open or drag & drop)."));
         return;

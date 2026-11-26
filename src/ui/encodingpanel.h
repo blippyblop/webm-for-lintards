@@ -19,6 +19,12 @@ public:
     void setOptions(const EncodingOptions& options);
     EncodingOptions options() const;
 
+    // The three sub-panels are exposed so the host window can place them as
+    // flat tabs (Encoding / Audio / Metadata) alongside the Filters tab.
+    QWidget* videoTab();
+    QWidget* audioTab();
+    QWidget* metadataTab();
+
 signals:
     void changed();
 
@@ -49,6 +55,10 @@ private:
     QCheckBox* mono_ = nullptr;
     QLineEdit* sizeLimitMb_ = nullptr;
     QLineEdit* title_ = nullptr;
+
+    QWidget* videoTab_ = nullptr;
+    QWidget* audioTab_ = nullptr;
+    QWidget* metadataTab_ = nullptr;
 
     bool loading_ = false;
 };

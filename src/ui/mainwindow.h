@@ -102,6 +102,7 @@ private:
     EncodingPanel* encodingPanel_ = nullptr;
     ConsolePanel* console_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLineEdit* inputEdit_ = nullptr;
     QLineEdit* outputEdit_ = nullptr;
     QPushButton* convertBtn_ = nullptr;
 
