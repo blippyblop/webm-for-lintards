@@ -3,14 +3,17 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace wc {
 
@@ -18,7 +21,7 @@ PreviewEngine::PreviewEngine(QObject* parent)
     : QObject(parent), cache_(new FrameCache) {
     burstTimer_ = new QTimer(this);
     burstTimer_->setSingleShot(true);
-    burstTimer_->setInterval(220);   // debounce rapid scrubbing
+    burstTimer_->setInterval(220);
     connect(burstTimer_, &QTimer::timeout, this, [this]() {
         if (!burstRunning_) startBurst(burstCenter_);
     });
@@ -35,6 +38,20 @@ void PreviewEngine::setSource(const QString& path, const VideoInfo& info) {
     info_ = info;
     cache_->clear();
     pendingFrame_ = -1;
+    expansion_ = 1;
+
+    // Per-source disk cache, keyed by path+size+mtime (like the original's MD5
+    // of the file used to name its .ffindex).
+    const QFileInfo fi(path);
+    const QString key = QString::fromLatin1(
+        QCryptographicHash::hash((path + QLatin1Char('|') + QString::number(fi.size()) +
+                                  QLatin1Char('|') + QString::number(fi.lastModified().toSecsSinceEpoch()))
+                                     .toUtf8(),
+                                 QCryptographicHash::Md5)
+            .toHex());
+    cacheRoot_ = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+                 QStringLiteral("/frames/") + key;
+    QDir().mkpath(cacheRoot_);
 }
 
 void PreviewEngine::clear() {
@@ -42,6 +59,7 @@ void PreviewEngine::clear() {
     sourcePath_.clear();
     info_ = VideoInfo{};
     cache_->clear();
+    cacheRoot_.clear();
 }
 
 void PreviewEngine::clearCache() { cache_->clear(); }
@@ -49,6 +67,40 @@ void PreviewEngine::clearCache() { cache_->clear(); }
 void PreviewEngine::setFilterProvider(std::function<QString(double)> fn) {
     filterProvider_ = std::move(fn);
     cache_->clear();
+}
+
+QString PreviewEngine::buildVf(double t) const {
+    QString vf;
+    if (filterProvider_) vf = filterProvider_(t);
+    if (info_.width > 1280) {
+        if (!vf.isEmpty()) vf += QLatin1Char(',');
+        vf += QStringLiteral("scale=1280:-2");
+    }
+    return vf;
+}
+
+QString PreviewEngine::diskPath(const QString& vf, int frame) const {
+    if (cacheRoot_.isEmpty()) return QString();
+    const QString h = QString::fromLatin1(
+        QCryptographicHash::hash(vf.toUtf8(), QCryptographicHash::Md5).toHex());
+    return cacheRoot_ + QLatin1Char('/') + h + QLatin1Char('/') + QString::number(frame) +
+           QStringLiteral(".jpg");
+}
+
+bool PreviewEngine::loadFromDisk(const QString& vf, int frame, QImage& out) const {
+    const QString p = diskPath(vf, frame);
+    if (p.isEmpty() || !QFile::exists(p)) return false;
+    QImage img(p);
+    if (img.isNull()) return false;
+    out = img;
+    return true;
+}
+
+void PreviewEngine::saveToDisk(const QString& vf, int frame, const QImage& img) const {
+    const QString p = diskPath(vf, frame);
+    if (p.isEmpty() || img.isNull()) return;
+    QDir().mkpath(QFileInfo(p).absolutePath());
+    img.save(p, "JPEG", 90);
 }
 
 void PreviewEngine::requestFrame(int frame) {
@@ -60,6 +112,17 @@ void PreviewEngine::requestFrame(int frame) {
         scheduleBurst(frame);
         return;
     }
+
+    // Persistent disk cache hit? (index-like: no ffmpeg spawn needed)
+    const QString vf = buildVf(info_.timeOfFrame(frame));
+    QImage diskImg;
+    if (loadFromDisk(vf, frame, diskImg)) {
+        cache_->insert(frame, diskImg);
+        emit frameReady(frame, diskImg);
+        scheduleBurst(frame);
+        return;
+    }
+
     scheduleBurst(frame);
     if (busy_) {
         pendingFrame_ = frame;
@@ -69,6 +132,7 @@ void PreviewEngine::requestFrame(int frame) {
 }
 
 void PreviewEngine::scheduleBurst(int centerFrame) {
+    if (std::abs(centerFrame - burstCenter_) > 2) expansion_ = 1;
     burstCenter_ = centerFrame;
     if (burstTimer_ && !burstRunning_) burstTimer_->start();
 }
@@ -85,19 +149,14 @@ void PreviewEngine::startDecode(int frame) {
     proc_ = new QProcess(this);
     proc_->setProgram(ffmpegPath_);
 
+    const QString vf = buildVf(info_.timeOfFrame(frame));
+    currentVf_ = vf;
+
     QStringList args;
     args << "-loglevel" << "error"
          << "-ss" << QString::number(info_.timeOfFrame(frame), 'f', 6)
          << "-i" << sourcePath_;
-
-    QString vf;
-    if (filterProvider_) vf = filterProvider_(info_.timeOfFrame(frame));
-    if (info_.width > 1280) {
-        if (!vf.isEmpty()) vf += QLatin1Char(',');
-        vf += QStringLiteral("scale=1280:-2");
-    }
     if (!vf.isEmpty()) args << "-vf" << vf;
-
     args << "-frames:v" << "1"
          << "-f" << "image2pipe"
          << "-vcodec" << "mjpeg"
@@ -114,6 +173,7 @@ void PreviewEngine::onProcFinished(int exitCode, QProcess::ExitStatus status) {
     if (proc_) data = proc_->readAllStandardOutput();
 
     const int decodedFrame = currentFrame_;
+    const QString vf = currentVf_;
     if (proc_) {
         proc_->disconnect(this);
         proc_->deleteLater();
@@ -125,6 +185,7 @@ void PreviewEngine::onProcFinished(int exitCode, QProcess::ExitStatus status) {
         QImage img = QImage::fromData(data, "JPEG");
         if (!img.isNull()) {
             cache_->insert(decodedFrame, img);
+            saveToDisk(vf, decodedFrame, img);
             emit frameReady(decodedFrame, img);
         }
     } else if (!data.isEmpty() && exitCode != 0) {
@@ -144,8 +205,8 @@ void PreviewEngine::startBurst(int centerFrame) {
     if (total <= 1) return;
 
     const int radius = static_cast<int>(std::max<long long>(1, total / 20));  // ~5%
-    int count = std::min(2 * radius + 1, 80);                                 // batch cap
-    if (count < 2) return;
+    int baseCount = std::min(2 * radius + 1, 80);
+    int count = std::min(baseCount * expansion_, 320);
     int start = centerFrame - count / 2;
     start = std::clamp(start, 0, static_cast<int>(std::max<long long>(0, total - count)));
     burstStart_ = start;
@@ -158,17 +219,13 @@ void PreviewEngine::startBurst(int centerFrame) {
     for (const QString& f : dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files))
         QFile::remove(dir.filePath(f));
 
+    burstVf_ = buildVf(info_.timeOfFrame(start));
+
     QStringList args;
     args << "-loglevel" << "error"
          << "-ss" << QString::number(info_.timeOfFrame(start), 'f', 6)
          << "-i" << sourcePath_;
-    QString vf;
-    if (filterProvider_) vf = filterProvider_(info_.timeOfFrame(start));
-    if (info_.width > 1280) {
-        if (!vf.isEmpty()) vf += QLatin1Char(',');
-        vf += QStringLiteral("scale=1280:-2");
-    }
-    if (!vf.isEmpty()) args << "-vf" << vf;
+    if (!burstVf_.isEmpty()) args << "-vf" << burstVf_;
     args << "-frames:v" << QString::number(count)
          << "-f" << "image2"
          << "-vcodec" << "mjpeg"
@@ -181,11 +238,19 @@ void PreviewEngine::startBurst(int centerFrame) {
         burstProc_->deleteLater();
     }
     burstProc_ = new QProcess(this);
-    burstProc_->setProgram(ffmpegPath_);
+    QString program = ffmpegPath_;
+#ifdef Q_OS_UNIX
+    program = QStringLiteral("nice");
+    args.prepend(ffmpegPath_);
+    args.prepend(QStringLiteral("19"));
+    args.prepend(QStringLiteral("-n"));
+#endif
+    burstProc_->setProgram(program);
     burstProc_->setArguments(args);
     burstProc_->setProcessChannelMode(QProcess::SeparateChannels);
     connect(burstProc_, &QProcess::finished, this, &PreviewEngine::onBurstFinished);
     burstRunning_ = true;
+    emit indexingActive(true);
     burstProc_->start();
 }
 
@@ -198,19 +263,28 @@ void PreviewEngine::onBurstFinished(int exitCode, QProcess::ExitStatus status) {
         burstProc_ = nullptr;
     }
     burstRunning_ = false;
+    emit indexingActive(false);
 
     QDir dir(burstDir_);
-    QStringList files = dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files, QDir::Name);
+    const QStringList files = dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files, QDir::Name);
     for (int i = 0; i < files.size() && i < burstCount_; ++i) {
         const int frame = burstStart_ + i;
-        if (cache_->contains(frame)) continue;
         QImage img(dir.filePath(files[i]));
-        if (!img.isNull()) cache_->insert(frame, img);
+        if (!img.isNull()) {
+            if (!cache_->contains(frame)) cache_->insert(frame, img);
+            saveToDisk(burstVf_, frame, img);
+        }
         QFile::remove(dir.filePath(files[i]));
     }
-    // remove any leftovers
     for (const QString& f : dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files))
         QFile::remove(dir.filePath(f));
+
+    // Keep widening the background window while the user sits still (~indexing
+    // outward from the cursor). Reset happens on the next distant seek.
+    if (!busy_ && pendingFrame_ < 0 && burstCenter_ == currentFrame_ && expansion_ < 4) {
+        ++expansion_;
+        if (burstTimer_) burstTimer_->start(120);
+    }
 }
 
 void PreviewEngine::cancel() {
