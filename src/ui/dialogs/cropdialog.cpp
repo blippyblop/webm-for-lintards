@@ -84,6 +84,7 @@ CropDialog::CropDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
     scrub_->setEditableModel(FilterModel{});
+    scrub_->setLimits(model_);
     scrub_->setCropEditable(true);
     form->insertRow(0, scrub_);
 

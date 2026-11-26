@@ -63,6 +63,7 @@ RotateDialog::RotateDialog(FilterModel& model, const VideoInfo& info, QWidget* p
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
     scrub_->setEditableModel(model_);
+    scrub_->setLimits(model_);
     layout->insertWidget(0, scrub_);
     connect(group_, &QButtonGroup::idClicked, this, [this](int id) {
         scrub_->previewModel().rotateDegrees = (id == 90 || id == 180 || id == 270) ? id : 0;

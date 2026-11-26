@@ -36,6 +36,9 @@ public:
     void gotoTime(double seconds);
     void gotoFrame(int frame) { gotoTime(info_.timeOfFrame(frame)); }
 
+    // Restrict scrubbing to the trimmed span (or multi-trim bounds).
+    void setLimits(const FilterModel& filters);
+
     // Preview against an external (applied) model.
     void setFilters(const FilterModel* model);
     // Preview against a dialog-owned copy that the dialog can mutate live.
@@ -83,6 +86,9 @@ private:
 
     double current_ = 0.0;
     double duration_ = 0.0;
+    double rangeStart_ = 0.0;
+    double rangeEnd_ = 0.0;
+    bool hasRange_ = false;
     QSize lastImageSize_;
 
     bool beforeAfter_ = false;

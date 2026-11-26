@@ -61,6 +61,7 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>
+#include <QApplication>
 #include <QDialog>
 #include <QKeyEvent>
 
@@ -347,9 +348,18 @@ void MainWindow::buildMenus() {
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* aboutAct = new QAction(tr("&About"), this);
     connect(aboutAct, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, tr("About WebM for Lintards"),
-                           tr("WebM for Lintards (Qt)\n\nA Linux-first Qt port of the "
-                              "WebMConverter GUI. Uses ffmpeg and yt-dlp.\nMIT licensed."));
+        QMessageBox box(this);
+        box.setWindowTitle(tr("About WebM for Lintards"));
+        box.setTextFormat(Qt::RichText);
+        box.setText(tr("<b>WebM for Lintards</b> v%1<br><br>"
+                       "A Linux-first Qt port of the WebMConverter GUI.<br>"
+                       "Uses ffmpeg and yt-dlp. MIT licensed.<br><br>"
+                       "Project: <a href=\"https://github.com/blippyblop/webm-for-lintards\">"
+                       "https://github.com/blippyblop/webm-for-lintards</a>")
+                        .arg(QApplication::applicationVersion()));
+        box.setTextInteractionFlags(Qt::TextBrowserInteraction);
+        for (QLabel* l : box.findChildren<QLabel*>()) l->setOpenExternalLinks(true);
+        box.exec();
     });
     helpMenu->addAction(aboutAct);
 }

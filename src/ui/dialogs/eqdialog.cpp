@@ -60,6 +60,7 @@ EqDialog::EqDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
     scrub_->setEditableModel(model_);
+    scrub_->setLimits(model_);
     layout->insertWidget(0, scrub_);
 
     auto syncPreview = [this]() {

@@ -81,6 +81,7 @@ OverlayDialog::OverlayDialog(FilterModel& model, const VideoInfo& info,
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
     scrub_->setFilters(&model_);
+    scrub_->setLimits(model_);
     layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addLayout(form);

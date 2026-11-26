@@ -64,6 +64,9 @@ void ScrubPreview::setSource(const QString& path, const VideoInfo& info, const Q
     info_ = info;
     sourcePath_ = path;
     if (!ffmpegPath.isEmpty()) ffmpegPath_ = ffmpegPath;
+    hasRange_ = false;
+    rangeStart_ = 0.0;
+    rangeEnd_ = info.durationSeconds;
     duration_ = info.durationSeconds;
     timeline_->setDuration(duration_);
     timeline_->setFrameRate(info.frameRateValue() > 0.0 ? info.frameRateValue() : 30.0);
@@ -96,6 +99,34 @@ void ScrubPreview::setDuration(double seconds) {
     timeline_->setDuration(duration_);
 }
 
+void ScrubPreview::setLimits(const FilterModel& filters) {
+    double s = 0.0;
+    double e = info_.durationSeconds;
+    if (!filters.multiTrim.empty()) {
+        s = filters.multiTrim.front().start;
+        e = filters.multiTrim.front().end;
+        for (const auto& r : filters.multiTrim) {
+            s = std::min(s, r.start);
+            e = std::max(e, r.end);
+        }
+    } else if (filters.trim && filters.trim->end > filters.trim->start) {
+        s = filters.trim->start;
+        e = filters.trim->end;
+    }
+    const double total = info_.durationSeconds;
+    if (total > 0.0) {
+        s = std::clamp(s, 0.0, total);
+        e = std::clamp(e, 0.0, total);
+    }
+    if (e <= s) { s = 0.0; e = total; }
+    rangeStart_ = s;
+    rangeEnd_ = e;
+    hasRange_ = true;
+    duration_ = std::max(0.0, e - s);
+    timeline_->setDuration(duration_);
+    gotoTime(current_ < s ? s : current_);
+}
+
 void ScrubPreview::setCropEditable(bool editable) {
     if (canvas_) canvas_->setCropEditable(editable);
 }
@@ -114,10 +145,12 @@ void ScrubPreview::setBeforeAfter(bool on, std::function<QImage(const QImage&)> 
 }
 
 void ScrubPreview::gotoTime(double seconds) {
-    if (seconds < 0.0) seconds = 0.0;
-    if (duration_ > 0.0 && seconds > duration_) seconds = duration_;
+    const double lo = hasRange_ ? rangeStart_ : 0.0;
+    const double hi = hasRange_ ? rangeEnd_ : duration_;
+    if (seconds < lo) seconds = lo;
+    if (hi > lo && seconds > hi) seconds = hi;
     current_ = seconds;
-    timeline_->setCurrentTime(seconds);
+    timeline_->setCurrentTime(seconds - lo);
     const double fps = info_.frameRateValue() > 0.0 ? info_.frameRateValue() : 30.0;
     const int frame = info_.frameAt(seconds);
     label_->setText(tr("%1 s  (frame %2 @ %3 fps)")
@@ -129,7 +162,7 @@ void ScrubPreview::gotoTime(double seconds) {
 }
 
 void ScrubPreview::onSeek(double seconds) {
-    gotoTime(seconds);
+    gotoTime((hasRange_ ? rangeStart_ : 0.0) + seconds);
     emit timeChanged(current_);
 }
 
