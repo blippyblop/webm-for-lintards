@@ -19,7 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macOS intentionally omitted for now (no way to test it yet).
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
