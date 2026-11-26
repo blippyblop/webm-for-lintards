@@ -16,6 +16,16 @@ and macOS.
 
 ---
 
+## Usage:
+
+Install ffmpeg and yt-dlp and make them available on PATH. 
+
+Run the appimage.
+
+Done.
+
+---
+
 ## Status
 
 | Area | State |
@@ -280,6 +290,13 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the data flow, the exact
 filter ordering, the two-pass/size-targeting maths and the preview strategy.
 
 ---
+
+## AI Disclaimer
+
+Entirely slop ported. By deepseek4.1-flash doing the coding and I used GLM5.4 on the recon/planning. 
+
+---
+
 
 ## License & credits
 
