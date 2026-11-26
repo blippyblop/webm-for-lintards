@@ -1,16 +1,20 @@
 #include "fadedialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
 
 namespace wc {
 
-FadeDialog::FadeDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
+FadeDialog::FadeDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
+                       const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     setWindowTitle(tr("Fade"));
 
@@ -44,11 +48,27 @@ FadeDialog::FadeDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     connect(buttons, &QDialogButtonBox::rejected, this, &FadeDialog::reject);
 
     auto* layout = new QVBoxLayout(this);
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addLayout(form);
+
+    auto* scrubRow = new QHBoxLayout;
+    auto* inBtn = new QPushButton(tr("In = playhead"), this);
+    auto* outBtn = new QPushButton(tr("Out = playhead→end"), this);
+    scrubRow->addWidget(inBtn);
+    scrubRow->addWidget(outBtn);
+    scrubRow->addStretch(1);
+    layout->addLayout(scrubRow);
+    connect(inBtn, &QPushButton::clicked, this, [this]() { inSpin_->setValue(scrub_->currentTime()); });
+    connect(outBtn, &QPushButton::clicked, this, [this]() {
+        outSpin_->setValue(std::max(0.0, info_.durationSeconds - scrub_->currentTime()));
+    });
+
     layout->addWidget(buttons);
 
-    resize(360, 180);
+    resize(560, 620);
 }
 
 void FadeDialog::accept() {

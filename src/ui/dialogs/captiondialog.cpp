@@ -1,4 +1,5 @@
 #include "captiondialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QCheckBox>
 #include <QColor>
@@ -30,7 +31,8 @@ QColor parseColor(const std::string& name, const QColor& fallback) {
 } // namespace
 
 CaptionDialog::CaptionDialog(FilterModel& model, const VideoInfo& info,
-                             QWidget* parent)
+                             QWidget* parent, const QString& inputPath,
+                             const QString& ffmpegPath)
     : QDialog(parent),
       model_(model),
       info_(info),
@@ -111,8 +113,22 @@ CaptionDialog::CaptionDialog(FilterModel& model, const VideoInfo& info,
     connect(buttons, &QDialogButtonBox::rejected, this, &CaptionDialog::reject);
 
     auto* layout = new QVBoxLayout(this);
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addLayout(form);
+
+    auto* scrubRow = new QHBoxLayout;
+    auto* sBtn = new QPushButton(tr("Start = playhead"), this);
+    auto* eBtn = new QPushButton(tr("End = playhead"), this);
+    scrubRow->addWidget(sBtn);
+    scrubRow->addWidget(eBtn);
+    scrubRow->addStretch(1);
+    layout->addLayout(scrubRow);
+    connect(sBtn, &QPushButton::clicked, this, [this]() { startSpin_->setValue(scrub_->currentTime()); });
+    connect(eBtn, &QPushButton::clicked, this, [this]() { endSpin_->setValue(scrub_->currentTime()); });
+
     layout->addWidget(buttons);
 
     // Reflect the stored colours on the buttons.
@@ -126,7 +142,7 @@ CaptionDialog::CaptionDialog(FilterModel& model, const VideoInfo& info,
     applySwatch(borderColorButton_, parseColor(borderColor_, Qt::black),
                 tr("Border color"));
 
-    resize(480, 520);
+    resize(640, 780);
 }
 
 void CaptionDialog::pickColor(std::string& target, QPushButton* button,

@@ -5,6 +5,7 @@
 #include "ui/consolepanel.h"
 #include "ui/encodingpanel.h"
 #include "ui/filterpanel.h"
+#include "ui/appliedfilterspanel.h"
 
 #include "ui/dialogs/trimdialog.h"
 #include "ui/dialogs/multitrimdialog.h"
@@ -91,6 +92,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(ytdlp_, &YtdlpRunner::finished, this, &MainWindow::onDownloadFinished);
 
     loadSettings();
+    refreshAppliedFilters();
 
     setAcceptDrops(true);
     resize(1200, 780);
@@ -160,11 +162,27 @@ void MainWindow::buildUi() {
 
     auto* vsplit = new QSplitter(Qt::Vertical, convert);
     vsplit->addWidget(hsplit);
-    console_ = new ConsolePanel(vsplit);
-    vsplit->addWidget(console_);
-    vsplit->setStretchFactor(0, 3);
+
+    // Bottom of the Convert tab: applied filters (replacing the old log) plus a
+    // slim progress bar + cancel.
+    auto* bottom = new QWidget(vsplit);
+    auto* bottomLayout = new QVBoxLayout(bottom);
+    bottomLayout->setContentsMargins(0, 0, 0, 0);
+    applied_ = new AppliedFiltersPanel(bottom);
+    convertProgress_ = new QProgressBar(bottom);
+    convertProgress_->setRange(0, 100);
+    auto* cancelRow = new QHBoxLayout;
+    cancelRow->addWidget(convertProgress_, 1);
+    auto* cancelBtn = new QPushButton(tr("Cancel"), bottom);
+    cancelRow->addWidget(cancelBtn);
+    bottomLayout->addWidget(applied_, 1);
+    bottomLayout->addLayout(cancelRow);
+    vsplit->addWidget(bottom);
+    connect(cancelBtn, &QPushButton::clicked, this, &MainWindow::onCancelClicked);
+
+    vsplit->setStretchFactor(0, 2);
     vsplit->setStretchFactor(1, 1);
-    vsplit->setSizes({540, 200});
+    vsplit->setSizes({420, 280});
 
     cv->addWidget(vsplit);
     tabs_->addTab(convert, tr("Convert"));
@@ -231,6 +249,13 @@ void MainWindow::buildUi() {
     mv->addWidget(startMerge);
     tabs_->addTab(mg, tr("Merge / Convert"));
 
+    // ---------------- Log tab ----------------
+    auto* logPage = new QWidget(tabs_);
+    auto* logLayout = new QVBoxLayout(logPage);
+    console_ = new ConsolePanel(logPage);
+    logLayout->addWidget(console_);
+    tabs_->addTab(logPage, tr("Log"));
+
     // ---------------- signal wiring ----------------
     connect(convertBtn_, &QPushButton::clicked, this, &MainWindow::onEncodeClicked);
     connect(browseIn, &QPushButton::clicked, this, &MainWindow::openFile);
@@ -239,11 +264,19 @@ void MainWindow::buildUi() {
         if (!p.isEmpty() && p != inputPath_ && QFileInfo::exists(p)) loadFile(p);
     });
     connect(browseOut, &QPushButton::clicked, this, [this]() {
+        QString start = outputDir_;
+        if (start.isEmpty()) start = outputEdit_->text();
+        if (start.isEmpty()) start = QDir::homePath();
         const QString f = QFileDialog::getSaveFileName(
-            this, tr("Save output"), outputEdit_->text(), tr("Video (*.webm *.mp4);;All files (*)"));
-        if (!f.isEmpty()) outputEdit_->setText(f);
+            this, tr("Save output"), start, tr("Video (*.webm *.mp4);;All files (*)"));
+        if (f.isEmpty()) return;
+        outputDir_ = QFileInfo(f).absolutePath();
+        persistFolders();
+        outputEdit_->setText(f);
     });
     connect(filterPanel_, &FilterPanel::filterClicked, this, &MainWindow::onFilterClicked);
+    connect(applied_, &AppliedFiltersPanel::modifyRequested, this, &MainWindow::onFilterClicked);
+    connect(applied_, &AppliedFiltersPanel::deleteRequested, this, &MainWindow::onDeleteFilter);
     connect(filterPanel_, &FilterPanel::loopToggled, this, &MainWindow::onLoopToggled);
     connect(filterPanel_, &FilterPanel::reverseToggled, this, &MainWindow::onReverseToggled);
     connect(timeline_, &TimelineWidget::seekRequested, this, &MainWindow::onSeek);
@@ -294,10 +327,14 @@ void MainWindow::buildMenus() {
 }
 
 void MainWindow::openFile() {
+    const QString start = inputDir_.isEmpty() ? QDir::homePath() : inputDir_;
     const QString f = QFileDialog::getOpenFileName(
-        this, tr("Open video"), QString(),
+        this, tr("Open video"), start,
         tr("Video (*.mp4 *.mkv *.webm *.avi *.mov *.m4v *.ts *.flv *.wmv);;All files (*)"));
-    if (!f.isEmpty()) loadFile(f);
+    if (f.isEmpty()) return;
+    inputDir_ = QFileInfo(f).absolutePath();
+    persistFolders();
+    loadFile(f);
 }
 
 void MainWindow::loadFile(const QString& path) {
@@ -317,6 +354,7 @@ void MainWindow::loadFile(const QString& path) {
     inputPath_ = path;
     if (inputEdit_) inputEdit_->setText(path);
     resetFiltersForNewFile();
+    if (encodingPanel_) encodingPanel_->setVideoInfo(info_);
     encoding_ = encodingPanel_->options();
 
     outputPath_ = defaultOutputPath();
@@ -360,6 +398,7 @@ void MainWindow::resetFiltersForNewFile() {
         canvas_->setCropEditable(true);
         canvas_->setCropRect(QRect());
     }
+    refreshAppliedFilters();
 }
 
 void MainWindow::requestPreview(int frame) {
@@ -418,10 +457,12 @@ void MainWindow::onCropChanged(const QRect& rect) {
 
 void MainWindow::onLoopToggled(bool on) {
     filters_.loop = on;
+    refreshAppliedFilters();
     appendLog(on ? tr("Loop enabled") : tr("Loop disabled"));
 }
 void MainWindow::onReverseToggled(bool on) {
     filters_.reverse = on;
+    refreshAppliedFilters();
     appendLog(on ? tr("Reverse enabled") : tr("Reverse disabled"));
 }
 
@@ -430,6 +471,7 @@ void MainWindow::onFilterClicked(FilterKind kind) {
         if (d.exec() == QDialog::Accepted) {
             updateCropOverlay();
             syncTimelineTrim();
+            refreshAppliedFilters();
             requestPreview(currentFrame_);
             appendLog(tr("Filter updated"));
         }
@@ -437,22 +479,69 @@ void MainWindow::onFilterClicked(FilterKind kind) {
 
     switch (kind) {
         case FilterKind::Trim: { TrimDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
-        case FilterKind::MultiTrim: { MultiTrimDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::MultiTrim: { MultiTrimDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Crop: { CropDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Resize: { ResizeDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Rotate: { RotateDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Rate: { RateDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::DynamicRate: { DynamicRateDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::Caption: { CaptionDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::DynamicRate: { DynamicRateDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
+        case FilterKind::Caption: { CaptionDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Subtitle: { SubtitleDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::Overlay: { OverlayDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::Fade: { FadeDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Overlay: { OverlayDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
+        case FilterKind::Fade: { FadeDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Eq: { EqDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Denoise: { DenoiseDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Deinterlace: { DeinterlaceDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Stabilization: { StabilizationDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::DelayAudio: { DelayAudioDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Loop:
+        case FilterKind::Reverse:
+            break;
     }
+}
+
+void MainWindow::onDeleteFilter(FilterKind kind) {
+    switch (kind) {
+        case FilterKind::Trim: filters_.trim.reset(); break;
+        case FilterKind::MultiTrim: filters_.multiTrim.clear(); break;
+        case FilterKind::Crop: filters_.crop = Crop{}; break;
+        case FilterKind::Resize: filters_.resizeEnabled = false; break;
+        case FilterKind::Rotate: filters_.rotateDegrees = 0; break;
+        case FilterKind::Rate: filters_.rateFps.reset(); break;
+        case FilterKind::DynamicRate: filters_.dynamicRateEnabled = false; filters_.dynamicRate.clear(); break;
+        case FilterKind::Caption: filters_.caption = Caption{}; break;
+        case FilterKind::Subtitle: filters_.subtitle = SubtitleTrack{}; break;
+        case FilterKind::Overlay: filters_.overlay = OverlaySpec{}; break;
+        case FilterKind::Fade: filters_.fade = Fade{}; break;
+        case FilterKind::Eq: filters_.eq = EqFilter{}; break;
+        case FilterKind::Denoise: filters_.denoise = false; break;
+        case FilterKind::Deinterlace: filters_.deinterlace = false; break;
+        case FilterKind::Stabilization: filters_.stabilization = Stabilization{}; break;
+        case FilterKind::DelayAudio: filters_.delayAudioMs = 0; break;
+        case FilterKind::Loop: filters_.loop = false; if (filterPanel_) filterPanel_->setLoop(false); break;
+        case FilterKind::Reverse: filters_.reverse = false; if (filterPanel_) filterPanel_->setReverse(false); break;
+    }
+    updateCropOverlay();
+    syncTimelineTrim();
+    refreshAppliedFilters();
+    appendLog(tr("Removed filter"));
+}
+
+void MainWindow::refreshAppliedFilters() {
+    if (applied_) applied_->setModel(filters_);
+}
+
+QString MainWindow::formatHms(double seconds) const {
+    long long s = static_cast<long long>(seconds + 0.5);
+    if (s < 0) s = 0;
+    const long long h = s / 3600;
+    s %= 3600;
+    const long long m = s / 60;
+    s %= 60;
+    return QStringLiteral("%1:%2:%3")
+        .arg(h, 2, 10, QChar('0'))
+        .arg(m, 2, 10, QChar('0'))
+        .arg(s, 2, 10, QChar('0'));
 }
 
 QString MainWindow::defaultOutputPath() const {
@@ -497,8 +586,13 @@ void MainWindow::onEncodeClicked() {
     convertBtn_->setEnabled(false);
     statusLabel_->setText(tr("Encoding…"));
 
+    encodeDuration_ = builder.outputDuration();
+    if (convertProgress_) convertProgress_->setValue(0);
+    progressClock_.start();
+    lastProgressMs_ = 0;
+
     encoder_->setFfmpegPath(ffmpegPath_);
-    encoder_->start(passes, info_.durationSeconds);
+    encoder_->start(passes, encodeDuration_);
 }
 
 void MainWindow::onCancelClicked() {
@@ -520,17 +614,34 @@ void MainWindow::onPreviewError(const QString& message) {
 
 void MainWindow::onEncodeProgress(qint64 frame, double timeSeconds, double percent,
                                   double fps, double speed) {
+    // Throttle UI updates so a chatty ffmpeg can't starve the event loop
+    // (which previously made the Filters tab feel unresponsive mid-encode).
+    const qint64 now = progressClock_.isValid() ? progressClock_.elapsed() : 0;
+    if (now - lastProgressMs_ < 100 && percent < 99.5) return;
+    lastProgressMs_ = now;
+
     console_->setProgress(percent);
-    statusLabel_->setText(tr("Encoding… frame %1  %2s  %3x  (%4%)")
+    if (convertProgress_) convertProgress_->setValue(static_cast<int>(percent));
+
+    QString eta = QStringLiteral("--:--:--");
+    if (speed > 0.01 && encodeDuration_ > 0.0) {
+        double remaining = (encodeDuration_ - timeSeconds) / speed;
+        if (remaining < 0.0) remaining = 0.0;
+        eta = formatHms(remaining);
+    }
+
+    statusLabel_->setText(tr("Encoding… frame %1  %2s  %3x  (%4%)  ETA %5")
                               .arg(frame)
                               .arg(timeSeconds, 0, 'f', 1)
                               .arg(speed, 0, 'f', 2)
-                              .arg(percent, 0, 'f', 1));
+                              .arg(percent, 0, 'f', 1)
+                              .arg(eta));
     Q_UNUSED(fps);
 }
 
 void MainWindow::onEncodeFinished(bool success, const QString& error) {
     convertRunning_ = false;
+    if (convertProgress_) convertProgress_->setValue(success ? 100 : 0);
     console_->setBusy(false);
     convertBtn_->setEnabled(true);
 
@@ -651,11 +762,25 @@ void MainWindow::loadSettings() {
         if (dir.isEmpty()) dir = QDir::homePath();
     }
     dlDirEdit_->setText(dir);
+
+    const QString home = QDir::homePath();
+    inputDir_ = s.value(QStringLiteral("paths/inputDir"), home).toString();
+    outputDir_ = s.value(QStringLiteral("paths/outputDir"), home).toString();
+    if (inputDir_.isEmpty()) inputDir_ = home;
+    if (outputDir_.isEmpty()) outputDir_ = home;
+}
+
+void MainWindow::persistFolders() {
+    QSettings s(QStringLiteral("webmforlazies"), QStringLiteral("webmconverter-qt"));
+    s.setValue(QStringLiteral("paths/inputDir"), inputDir_);
+    s.setValue(QStringLiteral("paths/outputDir"), outputDir_);
 }
 
 void MainWindow::saveSettings() {
     QSettings s(QStringLiteral("webmforlazies"), QStringLiteral("webmconverter-qt"));
     s.setValue(QStringLiteral("download/dir"), dlDirEdit_->text());
+    s.setValue(QStringLiteral("paths/inputDir"), inputDir_);
+    s.setValue(QStringLiteral("paths/outputDir"), outputDir_);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* e) {

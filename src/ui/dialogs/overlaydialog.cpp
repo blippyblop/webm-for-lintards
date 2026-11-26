@@ -1,4 +1,5 @@
 #include "overlaydialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -16,7 +17,8 @@
 namespace wc {
 
 OverlayDialog::OverlayDialog(FilterModel& model, const VideoInfo& info,
-                             QWidget* parent)
+                             QWidget* parent, const QString& inputPath,
+                             const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     setWindowTitle(tr("Overlay image"));
 
@@ -76,11 +78,25 @@ OverlayDialog::OverlayDialog(FilterModel& model, const VideoInfo& info,
     connect(buttons, &QDialogButtonBox::rejected, this, &OverlayDialog::reject);
 
     auto* layout = new QVBoxLayout(this);
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addLayout(form);
+
+    auto* scrubRow = new QHBoxLayout;
+    auto* sBtn = new QPushButton(tr("Start = playhead"), this);
+    auto* eBtn = new QPushButton(tr("End = playhead"), this);
+    scrubRow->addWidget(sBtn);
+    scrubRow->addWidget(eBtn);
+    scrubRow->addStretch(1);
+    layout->addLayout(scrubRow);
+    connect(sBtn, &QPushButton::clicked, this, [this]() { startSpin_->setValue(scrub_->currentTime()); });
+    connect(eBtn, &QPushButton::clicked, this, [this]() { endSpin_->setValue(scrub_->currentTime()); });
+
     layout->addWidget(buttons);
 
-    resize(500, 260);
+    resize(640, 640);
 }
 
 void OverlayDialog::accept() {

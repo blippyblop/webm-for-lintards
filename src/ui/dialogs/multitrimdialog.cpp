@@ -1,4 +1,5 @@
 #include "ui/dialogs/multitrimdialog.h"
+#include "ui/scrubpreview.h"
 
 #include <algorithm>
 #include <utility>
@@ -25,12 +26,17 @@ double maxSecondsFor(const VideoInfo& info) {
 }
 } // namespace
 
-MultiTrimDialog::MultiTrimDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
+MultiTrimDialog::MultiTrimDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
+                                 const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info), maxSeconds_(maxSecondsFor(info)) {
     setWindowTitle(tr("Multi-Trim"));
-    resize(460, 320);
+    resize(600, 700);
 
     auto* layout = new QVBoxLayout(this);
+
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    layout->addWidget(scrub_);
 
     if (info_.durationSeconds > 0.0) {
         layout->addWidget(new QLabel(
@@ -51,8 +57,27 @@ MultiTrimDialog::MultiTrimDialog(FilterModel& model, const VideoInfo& info, QWid
     removeButton_ = new QPushButton(tr("Remove segment"), this);
     buttonRow->addWidget(addButton_);
     buttonRow->addWidget(removeButton_);
+    auto* setStartBtn = new QPushButton(tr("Start at playhead"), this);
+    auto* setEndBtn = new QPushButton(tr("End at playhead"), this);
+    buttonRow->addWidget(setStartBtn);
+    buttonRow->addWidget(setEndBtn);
     buttonRow->addStretch(1);
     layout->addLayout(buttonRow);
+
+    connect(setStartBtn, &QPushButton::clicked, this, [this]() {
+        int row = table_->currentRow();
+        if (row < 0 && table_->rowCount() > 0) row = table_->rowCount() - 1;
+        if (row >= 0)
+            if (auto* s = qobject_cast<QDoubleSpinBox*>(table_->cellWidget(row, 0)))
+                s->setValue(scrub_ ? scrub_->currentTime() : 0.0);
+    });
+    connect(setEndBtn, &QPushButton::clicked, this, [this]() {
+        int row = table_->currentRow();
+        if (row < 0 && table_->rowCount() > 0) row = table_->rowCount() - 1;
+        if (row >= 0)
+            if (auto* s = qobject_cast<QDoubleSpinBox*>(table_->cellWidget(row, 1)))
+                s->setValue(scrub_ ? scrub_->currentTime() : 0.0);
+    });
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     layout->addWidget(buttons);

@@ -29,6 +29,11 @@ public:
 
     bool isTwoPass() const;
 
+    // Expected duration of the *output* after trims and (approximate) speed
+    // changes. Used for progress percentage and ETA, which ffmpeg reports in
+    // output time — NOT source time.
+    double outputDuration() const;
+
     // Exposed pieces (used by tests and the settings/diagnostics UI).
     std::string videoFilterGraph() const;   // contents of -filter_complex, or "" if none
     std::string videoCodecArgs() const;     // space-joined video encoding flags

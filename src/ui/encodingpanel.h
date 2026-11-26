@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include "core/filtermodel.h"
+#include "core/videoinfo.h"
 
 class QComboBox;
 class QSpinBox;
@@ -18,6 +19,9 @@ public:
 
     void setOptions(const EncodingOptions& options);
     EncodingOptions options() const;
+
+    // Populates the "source track" selector from the loaded media.
+    void setVideoInfo(const VideoInfo& info);
 
     // The three sub-panels are exposed so the host window can place them as
     // flat tabs (Encoding / Audio / Metadata) alongside the Filters tab.
@@ -43,6 +47,7 @@ private:
     QSpinBox* crf_ = nullptr;
     QSpinBox* audioBitrate_ = nullptr;
     QComboBox* audioCodec_ = nullptr;
+    QComboBox* audioTrack_ = nullptr;
     QCheckBox* twoPass_ = nullptr;
     QCheckBox* hq_ = nullptr;
     QCheckBox* alpha_ = nullptr;

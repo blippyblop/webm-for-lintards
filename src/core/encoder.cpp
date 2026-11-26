@@ -7,6 +7,10 @@
 #include <QSignalBlocker>
 #include <QString>
 #include <QStringList>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QSet>
 
 #include <string>
 #include <vector>
@@ -133,6 +137,7 @@ void Encoder::cleanupProcess()
 void Encoder::launchPass()
 {
     if (currentPass_ >= static_cast<int>(passes_.size())) {
+        cleanupArtifacts();
         running_ = false;
         emit finished(true, QString());
         return;
@@ -178,10 +183,42 @@ void Encoder::launchPass()
     for (const std::string& arg : plan.args)
         args << QString::fromStdString(arg);
 
-    proc_->setProgram(ffmpegPath_);
+    QString program = ffmpegPath_;
+#ifdef Q_OS_UNIX
+    // Run the encoder at low priority so it doesn't choke the desktop:
+    // nice -n 19 ffmpeg <args...>
+    program = QStringLiteral("nice");
+    args.prepend(ffmpegPath_);
+    args.prepend(QStringLiteral("19"));
+    args.prepend(QStringLiteral("-n"));
+#endif
+    proc_->setProgram(program);
     proc_->setArguments(args);
     proc_->setProcessChannelMode(QProcess::MergedChannels);
     proc_->start();
+}
+
+void Encoder::cleanupArtifacts()
+{
+    // Delete any two-pass log files referenced by the pass plans, plus the
+    // vid.stab transform file, so encoding leaves no stray *.log files behind.
+    QSet<QString> bases;
+    for (const PassPlan& plan : passes_) {
+        for (std::size_t i = 0; i + 1 < plan.args.size(); ++i) {
+            if (plan.args[i] == "-passlogfile")
+                bases.insert(QString::fromStdString(plan.args[i + 1]));
+        }
+    }
+    for (const QString& base : bases) {
+        QFile::remove(base);
+        const QFileInfo fi(base);
+        QDir dir = fi.absoluteDir();
+        const QString prefix = fi.fileName();
+        const QStringList files = dir.entryList({prefix + QStringLiteral("*")}, QDir::Files);
+        for (const QString& f : files)
+            QFile::remove(dir.filePath(f));
+    }
+    QFile::remove(QStringLiteral("transforms.trf"));
 }
 
 void Encoder::onStdErr()
@@ -233,12 +270,14 @@ void Encoder::onProcFinished(int exitCode, QProcess::ExitStatus status)
     }
 
     if (cancelled_) {
+        cleanupArtifacts();
         running_ = false;
         emit finished(false, QStringLiteral("Cancelled"));
         return;
     }
 
     if (exitCode != 0 || status == QProcess::CrashExit) {
+        cleanupArtifacts();
         running_ = false;
 
         if (!lastLine.isEmpty())

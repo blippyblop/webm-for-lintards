@@ -10,7 +10,7 @@ namespace wc {
 enum class FilterKind {
     Trim, MultiTrim, Crop, Resize, Rotate, Rate, DynamicRate,
     Caption, Subtitle, Overlay, Fade, Eq, Denoise, Deinterlace,
-    Stabilization, DelayAudio
+    Stabilization, DelayAudio, Loop, Reverse
 };
 
 class FilterPanel : public QWidget {

@@ -134,6 +134,7 @@ struct EncodingOptions {
     VideoCodec codec = VideoCodec::VP9;
     RateControl rateControl = RateControl::Variable;
     AudioCodec audioCodec = AudioCodec::Opus;
+    int audioStreamIndex = 0;      // ordinal among the source's audio streams
 
     int videoBitrateKbps = 1500;   // constant rate-control mode
     int audioBitrateKbps = 128;
@@ -143,11 +144,11 @@ struct EncodingOptions {
     bool hq = false;               // -lag-in-frames 16 -auto-alt-ref 1
     bool useAlpha = false;         // yuva420p
     bool hdr = false;              // 10-bit / bt.2020
-    long long sizeLimitBytes = 0;  // 0 = unlimited
+    long long sizeLimitBytes = 4LL * 1024 * 1024;  // 4 MB default; 0 = unlimited
     int threads = 0;               // 0 = auto
     int slices = 0;                // 0 = auto
 
-    bool disableAudio = false;
+    bool disableAudio = true;      // audio off by default
     bool normalizeAudio = false;
     bool amplifyAudio = false;
     bool monoAudio = false;

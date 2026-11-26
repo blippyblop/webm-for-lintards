@@ -75,6 +75,10 @@ EncodingPanel::EncodingPanel(QWidget* parent) : QWidget(parent) {
     disableAudio_ = new QCheckBox(tr("No audio"), audioGroup);
     aform->addRow(disableAudio_);
 
+    audioTrack_ = new QComboBox(audioGroup);
+    audioTrack_->addItem(tr("Track 0"), 0);
+    aform->addRow(tr("Source track"), audioTrack_);
+
     audioCodec_ = new QComboBox(audioGroup);
     audioCodec_->addItem(tr("Opus"), static_cast<int>(AudioCodec::Opus));
     audioCodec_->addItem(tr("Vorbis"), static_cast<int>(AudioCodec::Vorbis));
@@ -128,6 +132,7 @@ EncodingPanel::EncodingPanel(QWidget* parent) : QWidget(parent) {
     connect(crf_, &QSpinBox::valueChanged, this, notify);
     connect(audioBitrate_, &QSpinBox::valueChanged, this, notify);
     connect(audioCodec_, &QComboBox::currentIndexChanged, this, notify);
+    connect(audioTrack_, &QComboBox::currentIndexChanged, this, notify);
     connect(threads_, &QSpinBox::valueChanged, this, notify);
     connect(targetFps_, &QSpinBox::valueChanged, this, notify);
     connect(twoPass_, &QCheckBox::toggled, this, notify);
@@ -169,6 +174,8 @@ void EncodingPanel::syncEnabled() {
     videoBitrate_->setEnabled(constant);
     crf_->setEnabled(!constant);
     const bool noAudio = disableAudio_->isChecked();
+    audioTrack_->setEnabled(!noAudio && audioTrack_->count() > 0 &&
+                            audioTrack_->currentData().toInt() >= 0);
     audioCodec_->setEnabled(!noAudio);
     audioBitrate_->setEnabled(!noAudio);
     normalize_->setEnabled(!noAudio);
@@ -202,6 +209,8 @@ void EncodingPanel::setOptions(const EncodingOptions& o) {
     disableAudio_->setChecked(o.disableAudio);
     int ai = audioCodec_->findData(static_cast<int>(o.audioCodec));
     audioCodec_->setCurrentIndex(ai < 0 ? 0 : ai);
+    int ti = audioTrack_->findData(o.audioStreamIndex);
+    if (ti >= 0) audioTrack_->setCurrentIndex(ti);
     audioBitrate_->setValue(o.audioBitrateKbps);
     normalize_->setChecked(o.normalizeAudio);
     amplify_->setChecked(o.amplifyAudio);
@@ -232,6 +241,7 @@ EncodingOptions EncodingPanel::options() const {
     o.targetFps = targetFps_->value();
 
     o.disableAudio = disableAudio_->isChecked();
+    o.audioStreamIndex = audioTrack_->currentData().toInt();
     o.audioCodec = static_cast<AudioCodec>(audioCodec_->currentData().toInt());
     o.audioBitrateKbps = audioBitrate_->value();
     o.normalizeAudio = normalize_->isChecked();
@@ -243,6 +253,29 @@ EncodingOptions EncodingPanel::options() const {
     o.sizeLimitBytes = (ok && mb > 0.0) ? static_cast<long long>(mb * 1024.0 * 1024.0) : 0;
     o.title = title_->text().toStdString();
     return o;
+}
+
+void EncodingPanel::setVideoInfo(const VideoInfo& info) {
+    loading_ = true;
+    const int prev = audioTrack_->count() > 0 ? audioTrack_->currentData().toInt() : 0;
+    audioTrack_->clear();
+    int ord = 0;
+    for (const auto& s : info.streams) {
+        if (s.codecType != "audio") continue;
+        QString label = tr("Track %1").arg(ord);
+        if (!s.codecName.empty()) label += QStringLiteral(" — ") + QString::fromStdString(s.codecName);
+        if (!s.language.empty())
+            label += QStringLiteral(" [") + QString::fromStdString(s.language) + QLatin1Char(']');
+        audioTrack_->addItem(label, ord);
+        ++ord;
+    }
+    if (audioTrack_->count() == 0)
+        audioTrack_->addItem(tr("No audio stream"), -1);
+    int idx = audioTrack_->findData(prev >= 0 ? prev : 0);
+    if (idx < 0) idx = 0;
+    audioTrack_->setCurrentIndex(idx);
+    loading_ = false;
+    syncEnabled();
 }
 
 QWidget* EncodingPanel::videoTab() { return videoTab_; }

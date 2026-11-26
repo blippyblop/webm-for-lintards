@@ -108,7 +108,8 @@ static FilterModel emptyFilters() { return FilterModel{}; }
 static void testBuilderDefaultVp9() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
-    EncodingOptions e;                 // defaults: WebM / VP9 / variable / crf 30
+    EncodingOptions e;                 // WebM / VP9 / variable / crf 30
+    e.sizeLimitBytes = 0;              // clear the 4 MB default to exercise CRF
     CommandBuilder b(info, f, e);
     auto passes = b.build("/tmp/in.mp4", "/tmp/out.webm");
     CHECK(passes.size() == 1);
@@ -235,6 +236,41 @@ static void testBuilderDynamicCrop() {
     CHECK(hasSubstr(p[0].args, "if(lte(t,"));
 }
 
+static void testEncodingDefaultsAndAudioMap() {
+    VideoInfo info = sampleInfo();
+    FilterModel f = emptyFilters();
+    EncodingOptions e;   // application defaults: WebM/VP9/CRF, 4 MB cap, audio off
+    CHECK(e.format == OutputFormat::WebM);
+    CHECK(e.codec == VideoCodec::VP9);
+    CHECK(e.rateControl == RateControl::Variable);
+    CHECK(e.sizeLimitBytes == 4LL * 1024 * 1024);
+    CHECK(e.disableAudio == true);
+    CHECK(e.threads == 0);
+    CHECK(e.targetFps == 0);
+
+    CommandBuilder b(info, f, e);
+    auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
+    CHECK(hasToken(p[0].args, "-an"));
+    CHECK(hasToken(p[0].args, "-fs"));   // size cap active
+
+    // Audio stream selection.
+    EncodingOptions e2;
+    e2.disableAudio = false;
+    e2.audioStreamIndex = 1;
+    CommandBuilder b2(info, f, e2);
+    auto p2 = b2.build("/tmp/in.mp4", "/tmp/out.webm");
+    CHECK(hasSubstr(p2[0].args, "0:a:1?"));
+}
+
+static void testOutputDurationWithTrim() {
+    VideoInfo info = sampleInfo();   // 60 s
+    FilterModel f = emptyFilters();
+    f.trim = TrimRange{5.0, 15.0};
+    EncodingOptions e;
+    CommandBuilder b(info, f, e);
+    CHECK_NEAR(b.outputDuration(), 10.0, 1e-9);
+}
+
 static void testBuilderStabilization() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
@@ -277,6 +313,8 @@ int main() {
     testBuilderAlphaAndHdr();
     testBuilderResizeRotateRate();
     testBuilderDynamicCrop();
+    testEncodingDefaultsAndAudioMap();
+    testOutputDurationWithTrim();
     testBuilderStabilization();
     testBuilderGrid();
 

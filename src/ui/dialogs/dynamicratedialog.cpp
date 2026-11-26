@@ -1,4 +1,5 @@
 #include "dynamicratedialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -14,7 +15,8 @@
 namespace wc {
 
 DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
-                                     QWidget* parent)
+                                     QWidget* parent, const QString& inputPath,
+                                     const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     setWindowTitle(tr("Dynamic rate"));
 
@@ -51,9 +53,16 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
         if (row >= 0) table_->removeRow(row);
     });
 
+    auto* addAtPlayhead = new QPushButton(tr("Add keyframe at playhead"), this);
+    connect(addAtPlayhead, &QPushButton::clicked, this, [this]() {
+        addRow(scrub_ ? scrub_->currentTime() : 0.0, 1.0);
+        table_->selectRow(table_->rowCount() - 1);
+    });
+
     auto* rowButtons = new QHBoxLayout;
     rowButtons->addWidget(addBtn);
     rowButtons->addWidget(removeBtn);
+    rowButtons->addWidget(addAtPlayhead);
     rowButtons->addStretch(1);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
@@ -63,6 +72,9 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
     connect(buttons, &QDialogButtonBox::rejected, this, &DynamicRateDialog::reject);
 
     auto* layout = new QVBoxLayout(this);
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addWidget(table_, 1);
     layout->addLayout(rowButtons);
@@ -73,14 +85,16 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
     // Row buttons should follow the checkbox as well.
     connect(enabledBox_, &QCheckBox::toggled, addBtn, &QWidget::setEnabled);
     connect(enabledBox_, &QCheckBox::toggled, removeBtn, &QWidget::setEnabled);
+    connect(enabledBox_, &QCheckBox::toggled, addAtPlayhead, &QWidget::setEnabled);
     addBtn->setEnabled(model_.dynamicRateEnabled);
     removeBtn->setEnabled(model_.dynamicRateEnabled);
+    addAtPlayhead->setEnabled(model_.dynamicRateEnabled);
 
     for (const auto& kf : model_.dynamicRate) {
         addRow(kf.time, kf.rate);
     }
 
-    resize(460, 340);
+    resize(600, 700);
 }
 
 void DynamicRateDialog::addRow(double time, double rate) {

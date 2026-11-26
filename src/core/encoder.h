@@ -38,6 +38,7 @@ private slots:
 private:
     void launchPass();
     void cleanupProcess();
+    void cleanupArtifacts();   // remove two-pass logs / vid.stab transform file
 
     QString ffmpegPath_ = QStringLiteral("ffmpeg");
     QProcess* proc_ = nullptr;

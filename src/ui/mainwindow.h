@@ -1,12 +1,13 @@
 #pragma once
-// Main window: Convert / Download / Merge tabs, preview + timeline, filter &
-// encoding panels, conversion console. Owns the engines and wires them up.
+// Main window: Convert / Download / Merge / Log tabs, preview + timeline,
+// filter & encoding panels, applied-filters panel and conversion console.
 
 #include <QMainWindow>
 #include <QImage>
 #include <QString>
 #include <QStringList>
 #include <QRect>
+#include <QElapsedTimer>
 
 #include "core/videoinfo.h"
 #include "core/filtermodel.h"
@@ -28,6 +29,7 @@ class PreviewCanvas;
 class TimelineWidget;
 class ConsolePanel;
 class EncodingPanel;
+class AppliedFiltersPanel;
 class PreviewEngine;
 class Encoder;
 class YtdlpRunner;
@@ -47,6 +49,7 @@ protected:
 private slots:
     void openFile();
     void onFilterClicked(FilterKind kind);
+    void onDeleteFilter(FilterKind kind);
     void onLoopToggled(bool on);
     void onReverseToggled(bool on);
     void onSeek(double seconds);
@@ -72,11 +75,14 @@ private:
     void requestPreview(int frame);
     void updateCropOverlay();
     void syncTimelineTrim();
+    void refreshAppliedFilters();
     void appendLog(const QString& line);
     QString defaultOutputPath() const;
     QString formatSelectorForCombo() const;
+    QString formatHms(double seconds) const;
     void loadSettings();
     void saveSettings();
+    void persistFolders();
     void showError(const QString& title, const QString& message);
     void startNextConvert();
 
@@ -90,6 +96,13 @@ private:
     bool convertRunning_ = false;
     QStringList convertQueue_;
 
+    double encodeDuration_ = 0.0;
+    QElapsedTimer progressClock_;
+    qint64 lastProgressMs_ = 0;
+
+    QString inputDir_;
+    QString outputDir_;
+
     QString ffmpegPath_ = QStringLiteral("ffmpeg");
     QString ffprobePath_ = QStringLiteral("ffprobe");
     QString ytdlpPath_ = QStringLiteral("yt-dlp");
@@ -100,7 +113,9 @@ private:
     TimelineWidget* timeline_ = nullptr;
     FilterPanel* filterPanel_ = nullptr;
     EncodingPanel* encodingPanel_ = nullptr;
+    AppliedFiltersPanel* applied_ = nullptr;
     ConsolePanel* console_ = nullptr;
+    QProgressBar* convertProgress_ = nullptr;
     QLabel* statusLabel_ = nullptr;
     QLineEdit* inputEdit_ = nullptr;
     QLineEdit* outputEdit_ = nullptr;

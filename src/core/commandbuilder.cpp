@@ -130,6 +130,18 @@ double CommandBuilder::clipDuration() const {
     return info_.durationSeconds;
 }
 
+double CommandBuilder::outputDuration() const {
+    double d = clipDuration();
+    if (f_.dynamicRateEnabled && f_.dynamicRate.size() >= 2) {
+        double sum = 0.0;
+        for (const auto& k : f_.dynamicRate) sum += k.rate;
+        const double mean = sum / static_cast<double>(f_.dynamicRate.size());
+        if (mean > 0.01) d /= mean;
+    }
+    if (f_.loop) d *= 2.0;   // forward+reverse concat
+    return d > 0.0 ? d : info_.durationSeconds;
+}
+
 int CommandBuilder::effectiveAudioKbps() const {
     return e_.disableAudio ? 0 : e_.audioBitrateKbps;
 }
@@ -415,7 +427,10 @@ void CommandBuilder::appendVideoArgs(std::vector<std::string>& a) const {
 void CommandBuilder::appendAudioArgs(std::vector<std::string>& a) const {
     if (e_.disableAudio) { a.push_back("-an"); return; }
     a.push_back("-map");
-    a.push_back("0:a:0?");
+    if (e_.audioStreamIndex >= 0)
+        a.push_back("0:a:" + std::to_string(e_.audioStreamIndex) + "?");
+    else
+        a.push_back("0:a:0?");
     a.push_back("-c:a");
     a.push_back(audioEncoder());
     a.push_back("-b:a");
