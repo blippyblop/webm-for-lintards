@@ -1,0 +1,147 @@
+# Release pipeline: on a v* tag (or manual dispatch), build the app on Linux and
+# Windows and publish a GitHub Release with downloadable artifacts.
+#
+# Linux  -> self-contained .AppImage (via packaging/make-appimage.sh) + portable tar.gz
+# Windows-> zip with Qt DLLs deployed (windeployqt)
+#
+# ffmpeg / ffprobe / yt-dlp are runtime-only and are NOT bundled; users install
+# them separately (documented in README).
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packaging deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf file libfuse2
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Build AppImage
+        run: |
+          chmod +x packaging/make-appimage.sh
+          VERSION="${GITHUB_REF_NAME#v}" packaging/make-appimage.sh
+          ls -la dist
+
+      - name: Build portable tarball
+        run: |
+          mkdir -p dist/pkg
+          cp build/webmconverter-qt dist/pkg/
+          cp packaging/webmconverter-qt.desktop dist/pkg/
+          cp packaging/io.github.webmforlazies.webmconverter.svg dist/pkg/
+          tar -C dist/pkg -czf dist/webmconverter-qt-linux-x86_64.tar.gz .
+          ls -la dist
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: windows zip
+    runs-on: windows-latest
+    # Windows packaging must not block a usable Linux release.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          arch: 'win64_msvc2022_64'
+          cache: true
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/webmconverter-qt.exe dist/
+          windeployqt --release --no-translations dist/webmconverter-qt.exe
+          Compress-Archive -Path dist/* -DestinationPath webmconverter-qt-windows-x64.zip
+          Get-ChildItem webmconverter-qt-windows-x64.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: webmconverter-qt-windows-x64.zip
+          if-no-files-found: ignore
+
+  release:
+    name: publish release
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/') && needs.linux.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Show artifacts
+        run: find artifacts -type f -maxdepth 3 -printf '%p (%k KB)\n' || ls -R artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: WebM for Lazys ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          body: |
+            Automated build of **WebM for Lazys (Qt)** ${{ github.ref_name }}.
+
+            ### Downloads
+            - **Linux**: `*.AppImage` — make it executable (`chmod +x`) and run. A portable `tar.gz` is also provided.
+            - **Windows**: `webmconverter-qt-windows-x64.zip` — unzip and run `webmconverter-qt.exe`.
+
+            ### Runtime requirements
+            ffmpeg / ffprobe (and optionally yt-dlp for the Download tab) must be on your
+            `PATH`. The AppImage/zip bundles Qt, not ffmpeg.
+
+            > Note: an AppImage may need FUSE (`libfuse2`); alternatively run it with
+            > `APPIMAGE_EXTRACT_AND_RUN=1`.
+          files: artifacts/**/*
