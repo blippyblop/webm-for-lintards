@@ -16,6 +16,10 @@ and macOS.
 
 ---
 
+## Just give me the exe, nerd
+
+This is the nerd version of the tool, sorry. You could try heading to releases and grabbing/running the windows version but it requires ffmpeg and yt-dlp installed which is easier on linux.
+
 ## Usage:
 
 Install ffmpeg and yt-dlp and make them available on PATH. 
