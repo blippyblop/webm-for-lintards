@@ -1,7 +1,7 @@
 #pragma once
-// Decodes preview frames via ffmpeg with an optional per-frame filter chain,
-// caches them, and prefetches a neighbourhood around the cursor in the
-// background so scrubbing stays smooth.
+// Preview frame decoder with cache and *batched* background prefetch: after a
+// seek settles, one ffmpeg process decodes a neighbourhood around the cursor to
+// temp JPEGs which are loaded into the cache.
 
 #include "core/videoinfo.h"
 
@@ -9,9 +9,10 @@
 #include <QImage>
 #include <QProcess>
 #include <QString>
-#include <QList>
 
 #include <functional>
+
+class QTimer;
 
 namespace wc {
 
@@ -31,8 +32,6 @@ public:
     void cancel();
     void clearCache();
 
-    // Per-frame filter chain provider (seconds -> ffmpeg -vf chain). Setting it
-    // invalidates the cache because the same frame now renders differently.
     void setFilterProvider(std::function<QString(double)> fn);
 
     bool hasSource() const { return !sourcePath_.isEmpty(); }
@@ -45,22 +44,28 @@ signals:
 
 private slots:
     void onProcFinished(int exitCode, QProcess::ExitStatus status);
+    void onBurstFinished(int exitCode, QProcess::ExitStatus status);
 
 private:
-    void startDecode(int frame, bool forDisplay);
-    void schedulePrefetch(int frame);
-    void kickNext();
+    void startDecode(int frame);
+    void scheduleBurst(int centerFrame);
+    void startBurst(int centerFrame);
 
     QString ffmpegPath_ = QStringLiteral("ffmpeg");
     QString sourcePath_;
     VideoInfo info_;
     FrameCache* cache_ = nullptr;
     QProcess* proc_ = nullptr;
+    QProcess* burstProc_ = nullptr;
+    QTimer* burstTimer_ = nullptr;
+    QString burstDir_;
     bool busy_ = false;
-    bool currentForDisplay_ = false;
     int currentFrame_ = -1;
     int pendingFrame_ = -1;
-    QList<int> prefetchQueue_;
+    int burstCenter_ = 0;
+    int burstStart_ = 0;
+    int burstCount_ = 0;
+    bool burstRunning_ = false;
     std::function<QString(double)> filterProvider_;
 };
 

@@ -1,21 +1,30 @@
 #include "ui/appliedfilterspanel.h"
+#include "ui/filterjson.h"
 
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QListView>
 #include <QAbstractItemView>
+#include <QStackedWidget>
+#include <QPlainTextEdit>
+#include <QToolButton>
+#include <QPushButton>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QAction>
 #include <QPainter>
 #include <QPixmap>
 #include <QIcon>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFileDialog>
+#include <QFile>
 
 namespace wc {
 
 namespace {
-
 QIcon makeIcon(const QString& text, const QColor& color) {
     QPixmap pm(64, 64);
     pm.fill(Qt::transparent);
@@ -32,15 +41,28 @@ QIcon makeIcon(const QString& text, const QColor& color) {
     p.drawText(pm.rect(), Qt::AlignCenter, text.left(4).toUpper());
     return QIcon(pm);
 }
-
 } // namespace
 
 AppliedFiltersPanel::AppliedFiltersPanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(new QLabel(tr("Applied filters  (right-click to modify or delete)"), this));
 
-    list_ = new QListWidget(this);
+    auto* header = new QHBoxLayout;
+    header->addWidget(new QLabel(tr("Applied filters  (right-click to modify or delete)"), this));
+    header->addStretch(1);
+    jsonToggle_ = new QToolButton(this);
+    jsonToggle_->setText(tr("JSON"));
+    jsonToggle_->setCheckable(true);
+    auto* saveBtn = new QPushButton(tr("Save…"), this);
+    auto* loadBtn = new QPushButton(tr("Load…"), this);
+    header->addWidget(jsonToggle_);
+    header->addWidget(saveBtn);
+    header->addWidget(loadBtn);
+    layout->addLayout(header);
+
+    stack_ = new QStackedWidget(this);
+
+    list_ = new QListWidget(stack_);
     list_->setViewMode(QListView::IconMode);
     list_->setIconSize(QSize(64, 64));
     list_->setGridSize(QSize(104, 104));
@@ -50,7 +72,26 @@ AppliedFiltersPanel::AppliedFiltersPanel(QWidget* parent) : QWidget(parent) {
     list_->setSpacing(4);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setContextMenuPolicy(Qt::CustomContextMenu);
-    layout->addWidget(list_, 1);
+    stack_->addWidget(list_);
+
+    auto* jsonPage = new QWidget(stack_);
+    auto* jl = new QVBoxLayout(jsonPage);
+    jsonView_ = new QPlainTextEdit(jsonPage);
+    auto* applyBtn = new QPushButton(tr("Apply JSON"), jsonPage);
+    jl->addWidget(jsonView_, 1);
+    jl->addWidget(applyBtn, 0, Qt::AlignRight);
+    stack_->addWidget(jsonPage);
+
+    stack_->setCurrentIndex(0);
+    layout->addWidget(stack_, 1);
+
+    connect(jsonToggle_, &QToolButton::toggled, this, [this](bool on) {
+        if (on) updateJsonView();
+        stack_->setCurrentIndex(on ? 1 : 0);
+    });
+    connect(saveBtn, &QPushButton::clicked, this, &AppliedFiltersPanel::saveJson);
+    connect(loadBtn, &QPushButton::clicked, this, &AppliedFiltersPanel::loadJson);
+    connect(applyBtn, &QPushButton::clicked, this, &AppliedFiltersPanel::applyJson);
 
     connect(list_, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         QListWidgetItem* item = list_->itemAt(pos);
@@ -65,7 +106,6 @@ AppliedFiltersPanel::AppliedFiltersPanel(QWidget* parent) : QWidget(parent) {
         if (chosen == mod) emit modifyRequested(kind);
         else if (chosen == del) emit deleteRequested(kind);
     });
-
     connect(list_, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
         if (!item) return;
         const QVariant d = item->data(Qt::UserRole);
@@ -84,6 +124,7 @@ void AppliedFiltersPanel::addItem(FilterKind kind, const QString& name, const QC
 }
 
 void AppliedFiltersPanel::setModel(const FilterModel& f) {
+    lastModel_ = f;
     list_->clear();
 
     if (f.trim) addItem(FilterKind::Trim, tr("Trim"), QColor(0x2e, 0x7d, 0x32));
@@ -111,6 +152,43 @@ void AppliedFiltersPanel::setModel(const FilterModel& f) {
         item->setFlags(Qt::NoItemFlags);
         list_->addItem(item);
     }
+    updateJsonView();
+}
+
+void AppliedFiltersPanel::updateJsonView() {
+    if (!jsonView_) return;
+    const QJsonDocument doc(filterToJson(lastModel_));
+    jsonView_->setPlainText(QString::fromUtf8(doc.toJson(QJsonDocument::Indented)));
+}
+
+void AppliedFiltersPanel::saveJson() {
+    const QString f = QFileDialog::getSaveFileName(this, tr("Save filters"), QString(),
+                                                   tr("JSON (*.json);;All files (*)"));
+    if (f.isEmpty()) return;
+    QFile file(f);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+    file.write(QJsonDocument(filterToJson(lastModel_)).toJson(QJsonDocument::Indented));
+}
+
+void AppliedFiltersPanel::loadJson() {
+    const QString f = QFileDialog::getOpenFileName(this, tr("Load filters"), QString(),
+                                                   tr("JSON (*.json);;All files (*)"));
+    if (f.isEmpty()) return;
+    QFile file(f);
+    if (!file.open(QIODevice::ReadOnly)) return;
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return;
+    FilterModel m;
+    if (filterFromJson(doc.object(), m)) emit modelLoaded(m);
+}
+
+void AppliedFiltersPanel::applyJson() {
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonView_->toPlainText().toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return;
+    FilterModel m;
+    if (filterFromJson(doc.object(), m)) emit modelLoaded(m);
 }
 
 } // namespace wc

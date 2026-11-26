@@ -86,8 +86,8 @@ OverlayDialog::OverlayDialog(FilterModel& model, const VideoInfo& info,
     layout->addLayout(form);
 
     auto* scrubRow = new QHBoxLayout;
-    auto* sBtn = new QPushButton(tr("Start = playhead"), this);
-    auto* eBtn = new QPushButton(tr("End = playhead"), this);
+    auto* sBtn = new QPushButton(tr("Start = current time"), this);
+    auto* eBtn = new QPushButton(tr("End = current time"), this);
     scrubRow->addWidget(sBtn);
     scrubRow->addWidget(eBtn);
     scrubRow->addStretch(1);

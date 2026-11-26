@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(webmconverter-qt VERSION 0.4.1 LANGUAGES CXX)
+project(webmconverter-qt VERSION 0.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,7 @@ set(APP_SOURCES
   src/ui/filterpanel.cpp
   src/ui/scrubpreview.cpp
   src/ui/appliedfilterspanel.cpp
+  src/ui/filterjson.cpp
 
   # Filter dialogs
   src/ui/dialogs/trimdialog.cpp
@@ -84,6 +85,7 @@ set(APP_HEADERS
   src/ui/filterpanel.h
   src/ui/scrubpreview.h
   src/ui/appliedfilterspanel.h
+  src/ui/filterjson.h
   src/ui/dialogs/trimdialog.h
   src/ui/dialogs/multitrimdialog.h
   src/ui/dialogs/cropdialog.h

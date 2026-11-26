@@ -7,6 +7,8 @@
 
 class QCheckBox;
 class QSpinBox;
+class QSlider;
+class QLabel;
 
 namespace wc {
 
@@ -25,6 +27,8 @@ private:
 
     QCheckBox* keepSource_ = nullptr;
     QSpinBox* fps_ = nullptr;
+    QSlider* percent_ = nullptr;
+    QLabel* percentLabel_ = nullptr;
 };
 
 } // namespace wc

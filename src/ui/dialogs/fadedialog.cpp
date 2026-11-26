@@ -56,8 +56,8 @@ FadeDialog::FadeDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     layout->addLayout(form);
 
     auto* scrubRow = new QHBoxLayout;
-    auto* inBtn = new QPushButton(tr("In = playhead"), this);
-    auto* outBtn = new QPushButton(tr("Out = playhead→end"), this);
+    auto* inBtn = new QPushButton(tr("In = current time"), this);
+    auto* outBtn = new QPushButton(tr("Out = current time→end"), this);
     scrubRow->addWidget(inBtn);
     scrubRow->addWidget(outBtn);
     scrubRow->addStretch(1);

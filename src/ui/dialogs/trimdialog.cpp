@@ -195,7 +195,8 @@ void TrimDialog::updateRangeUi() {
     const int sF = wholeClip_->isChecked() ? 0 : startFrame_->value();
     const int eF = wholeClip_->isChecked() ? maxFrame() : std::max(sF, endFrame_->value());
     timeline_->setTrimRange(info_.timeOfFrame(sF), info_.timeOfFrame(eF), true);
-    durationLabel_->setText(tr("%1 frames").arg(eF - sF + 1));
+    const double secs = info_.timeOfFrame(eF - sF + 1);
+    durationLabel_->setText(tr("%1 frames (%2 s)").arg(eF - sF + 1).arg(secs, 0, 'f', 2));
 }
 
 void TrimDialog::togglePlay() {

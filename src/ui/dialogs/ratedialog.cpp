@@ -6,7 +6,10 @@
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QSpinBox>
 
 namespace wc {
@@ -46,13 +49,47 @@ RateDialog::RateDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     form->addRow(keepSource_);
     form->addRow(tr("Target rate:"), fps_);
 
+    percent_ = new QSlider(Qt::Horizontal, this);
+    percent_->setRange(10, 400);
+    percent_->setSingleStep(5);
+    percentLabel_ = new QLabel(this);
+    auto* pctRow = new QHBoxLayout;
+    pctRow->addWidget(percent_, 1);
+    pctRow->addWidget(percentLabel_);
+    form->addRow(tr("Rate %:"), pctRow);
+
+    if (sourceFps > 0.0) {
+        const int pct = std::clamp(static_cast<int>(std::lround(initialFps / sourceFps * 100.0)), 10, 400);
+        percent_->setValue(pct);
+    } else {
+        percent_->setValue(100);
+    }
+    percentLabel_->setText(QString::number(percent_->value()) + QLatin1Char('%'));
+
+    connect(percent_, &QSlider::valueChanged, this, [this, sourceFps](int pct) {
+        percentLabel_->setText(QString::number(pct) + QLatin1Char('%'));
+        if (sourceFps > 0.0) {
+            QSignalBlocker b(fps_);
+            fps_->setValue(std::clamp(static_cast<int>(std::lround(sourceFps * pct / 100.0)),
+                                      kMinFps, kMaxFps));
+        }
+    });
+    connect(fps_, &QSpinBox::valueChanged, this, [this, sourceFps](int value) {
+        if (sourceFps <= 0.0) return;
+        QSignalBlocker b(percent_);
+        percent_->setValue(std::clamp(static_cast<int>(std::lround(value / sourceFps * 100.0)), 10, 400));
+        percentLabel_->setText(QString::number(percent_->value()) + QLatin1Char('%'));
+    });
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     form->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &RateDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &RateDialog::reject);
 
     connect(keepSource_, &QCheckBox::toggled, fps_, &QSpinBox::setDisabled);
+    connect(keepSource_, &QCheckBox::toggled, percent_, &QSlider::setDisabled);
     fps_->setDisabled(keepSource_->isChecked());
+    percent_->setDisabled(keepSource_->isChecked());
 }
 
 void RateDialog::accept() {

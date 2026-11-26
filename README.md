@@ -30,39 +30,6 @@ Done.
 
 ---
 
-## Status
-
-| Area | State |
-| --- | --- |
-| Qt-free core (`FilterModel`, `VideoInfo`, `CommandBuilder`, easing, size calc, progress parser) | **Implemented**, 57 unit checks passing |
-| Qt I/O adapters (`MediaProbe`, `Encoder`, `YtdlpRunner`) | **Implemented**, compile-checked against Qt 6.8 |
-| Filter dialogs (16 of them, see `src/ui/dialogs/`) | **Implemented**, compile-checked |
-| Preview engine, `PreviewCanvas`, `TimelineWidget`, panels, main window shell | **Implemented**, compile-checked |
-
-All 32 translation units under `src/` compile cleanly against Qt 6.8 headers
-(`scripts/check_qt_compile.sh`), and the Qt-free core's 57 unit checks pass
-(`scripts/build_core_tests.sh`). A native link/run and the AppImage are produced
-by CI (`.github/workflows/build.yml`), since the development sandbox used to
-author this port only had headers for a different CPU architecture.
-
-Concretely:
-
-* `CommandBuilder` covers WebM (VP8/VP9) and MP4 (H.264/H.265), constant and
-  variable rate control, two-pass, target filesize, trim/multi-trim, crop,
-  dynamic crop, resize, rotate, rate change, dynamic speed, captions, subtitle
-  burn-in, overlay, fade, EQ, denoise, deinterlace, audio delay, loop, reverse and
-  the multi-input grid path.
-* `Encoder` runs the resulting pass plans sequentially through `QProcess` and
-  emits parseable progress.
-* Every `.cpp` under `src/` compiles cleanly with
-  `scripts/check_qt_compile.sh` (32 translation units).
-
-Every filter listed above is emitted by `CommandBuilder` today. Stabilisation in
-particular produces a dedicated analysis pass (`vidstabdetect` → `transforms.trf`)
-that is inserted ahead of the encoding pass(es), which the unit tests assert.
-
----
-
 ## Features
 
 **Encoding**

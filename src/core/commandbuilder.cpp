@@ -62,6 +62,66 @@ std::string escapeDrawtext(const std::string& in) {
     return out;
 }
 
+// Build a speed-ramp expression in setpts' T (seconds) variable. Keyframe
+// times are shifted by the clip start (because -ss resets timestamps).
+// Non-smooth: step function. Smooth: hold each rate, then blend to the next
+// rate over `overlap` seconds immediately before its keyframe.
+std::string rateExpression(const std::vector<KeyframeRate>& kfs, double clipStart,
+                           bool smooth, double overlap) {
+    std::vector<std::pair<double, double>> pts;
+    pts.reserve(kfs.size());
+    for (const auto& k : kfs) {
+        double t = k.time - clipStart;
+        if (t < 0.0) t = 0.0;
+        pts.emplace_back(t, k.rate > 0.0 ? k.rate : 1.0);
+    }
+    std::sort(pts.begin(), pts.end(),
+              [](const std::pair<double, double>& a, const std::pair<double, double>& b) {
+                  return a.first < b.first;
+              });
+    if (pts.empty()) return "1";
+    if (pts.size() == 1) return num(pts.front().second);
+
+    struct Seg { double a; double b; std::string e; };  // b < 0 means +inf
+    std::vector<Seg> segs;
+    if (pts.front().first > 1e-6)
+        segs.push_back({0.0, pts.front().first, num(pts.front().second)});
+
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const double ti = pts[i].first;
+        const double ri = pts[i].second;
+        if (i + 1 == pts.size()) {
+            segs.push_back({ti, -1.0, num(ri)});
+            break;
+        }
+        const double next = pts[i + 1].first;
+        const double rn = pts[i + 1].second;
+        if (!smooth || overlap <= 1e-6) {
+            segs.push_back({ti, next, num(ri)});
+            continue;
+        }
+        double bs = next - overlap;
+        if (bs < ti) bs = ti;
+        if (bs > ti)
+            segs.push_back({ti, bs, num(ri)});
+        const double dur = next - bs;
+        std::string blend;
+        if (dur <= 1e-6) {
+            blend = num(rn);
+        } else {
+            blend = "(" + num(ri) + "+(" + num(rn) + "-" + num(ri) + ")*(T-" + num(bs) +
+                    ")/" + num(dur) + ")";
+        }
+        segs.push_back({bs, next, blend});
+    }
+
+    std::string expr = segs.back().e;
+    for (int i = static_cast<int>(segs.size()) - 2; i >= 0; --i) {
+        expr = "if(lte(T," + num(segs[i].b) + ")," + segs[i].e + "," + expr + ")";
+    }
+    return expr;
+}
+
 // Build a piecewise-linear expression in `t` from (time,value) points.
 std::string piecewiseLinear(const std::vector<std::pair<double, double>>& pts) {
     if (pts.empty()) return "0";
@@ -251,9 +311,11 @@ std::string CommandBuilder::videoFilterGraph() const {
     }
 
     if (f_.dynamicRateEnabled && f_.dynamicRate.size() >= 2) {
-        std::vector<std::pair<double, double>> rates;
-        for (const auto& k : f_.dynamicRate) rates.emplace_back(k.time, k.rate);
-        chain.push_back("setpts='(PTS)/(" + piecewiseLinear(rates) + ")'");
+        const double clipStart = f_.trim ? f_.trim->start : 0.0;
+        const std::string rateExpr = rateExpression(f_.dynamicRate, clipStart,
+                                                    f_.dynamicRateSmoothing,
+                                                    f_.dynamicRateSmoothingOverlap);
+        chain.push_back("setpts='(PTS-STARTPTS)/(" + rateExpr + ")'");
     }
 
     if (f_.eq.enabled) {

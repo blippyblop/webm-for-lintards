@@ -6,6 +6,7 @@
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -53,7 +54,7 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
         if (row >= 0) table_->removeRow(row);
     });
 
-    auto* addAtPlayhead = new QPushButton(tr("Add keyframe at playhead"), this);
+    auto* addAtPlayhead = new QPushButton(tr("Add at current time"), this);
     connect(addAtPlayhead, &QPushButton::clicked, this, [this]() {
         addRow(scrub_ ? scrub_->currentTime() : 0.0, 1.0);
         table_->selectRow(table_->rowCount() - 1);
@@ -71,6 +72,20 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
     connect(buttons, &QDialogButtonBox::accepted, this, &DynamicRateDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &DynamicRateDialog::reject);
 
+    smoothBox_ = new QCheckBox(tr("Smooth between keyframes"), this);
+    smoothBox_->setChecked(model_.dynamicRateSmoothing);
+    overlapSpin_ = new QDoubleSpinBox(this);
+    overlapSpin_->setRange(0.0, 10.0);
+    overlapSpin_->setDecimals(2);
+    overlapSpin_->setSingleStep(0.1);
+    overlapSpin_->setSuffix(tr(" s"));
+    overlapSpin_->setValue(model_.dynamicRateSmoothingOverlap);
+    auto* smoothRow = new QHBoxLayout;
+    smoothRow->addWidget(smoothBox_);
+    smoothRow->addWidget(new QLabel(tr("Overlap:"), this));
+    smoothRow->addWidget(overlapSpin_);
+    smoothRow->addStretch(1);
+
     auto* layout = new QVBoxLayout(this);
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
@@ -78,6 +93,7 @@ DynamicRateDialog::DynamicRateDialog(FilterModel& model, const VideoInfo& info,
     layout->addWidget(scrub_);
     layout->addWidget(enabledBox_);
     layout->addWidget(table_, 1);
+    layout->addLayout(smoothRow);
     layout->addLayout(rowButtons);
     layout->addWidget(buttons);
 
@@ -140,6 +156,8 @@ void DynamicRateDialog::accept() {
 
     model_.dynamicRateEnabled = enabledBox_->isChecked();
     model_.dynamicRate = std::move(result);
+    model_.dynamicRateSmoothing = smoothBox_->isChecked();
+    model_.dynamicRateSmoothingOverlap = overlapSpin_->value();
 
     QDialog::accept();
 }

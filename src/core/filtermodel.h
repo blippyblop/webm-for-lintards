@@ -105,6 +105,8 @@ struct FilterModel {
     std::optional<int> rateFps;                // change frame rate
     bool dynamicRateEnabled = false;
     std::vector<KeyframeRate> dynamicRate;     // speed ramp keyframes
+    bool dynamicRateSmoothing = true;          // blend rates near each keyframe
+    double dynamicRateSmoothingOverlap = 0.5;  // seconds of blend before each keyframe
 
     Caption caption;
     SubtitleTrack subtitle;

@@ -7,6 +7,7 @@
 
 class QCheckBox;
 class QTableWidget;
+class QDoubleSpinBox;
 
 namespace wc {
 
@@ -33,6 +34,8 @@ private:
 
     ScrubPreview* scrub_ = nullptr;
     QCheckBox* enabledBox_ = nullptr;
+    QCheckBox* smoothBox_ = nullptr;
+    QDoubleSpinBox* overlapSpin_ = nullptr;
     QTableWidget* table_ = nullptr;
     double maxTime_ = 1.0;
 };

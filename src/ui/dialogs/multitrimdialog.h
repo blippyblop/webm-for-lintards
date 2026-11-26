@@ -3,18 +3,18 @@
 #include <QDialog>
 #include <QString>
 
+#include <vector>
+
 #include "core/filtermodel.h"
 #include "core/videoinfo.h"
 
+class QListWidget;
 class QPushButton;
-class QTableWidget;
 
 namespace wc {
 
-class ScrubPreview;
-
-// Edits FilterModel::multiTrim. Each table row is a [start, end] segment in
-// seconds; rows with end <= start are dropped and the result is sorted by start.
+// Multi-trim segments. "Add segment…" opens the normal trim scrubber; segments
+// are concatenated in list order and can be reordered.
 class MultiTrimDialog : public QDialog {
     Q_OBJECT
 public:
@@ -24,16 +24,22 @@ public:
     void accept() override;
 
 private:
-    void addRow(double start, double end);
+    void addSegmentFromTrim();
+    void editSelected();
+    void refreshList();
 
     FilterModel& model_;
     const VideoInfo& info_;
-    double maxSeconds_ = 1.0;
+    QString inputPath_;
+    QString ffmpegPath_;
 
-    ScrubPreview* scrub_ = nullptr;
-    QTableWidget* table_ = nullptr;
-    QPushButton* addButton_ = nullptr;
-    QPushButton* removeButton_ = nullptr;
+    QListWidget* list_ = nullptr;
+    QPushButton* addBtn_ = nullptr;
+    QPushButton* editBtn_ = nullptr;
+    QPushButton* removeBtn_ = nullptr;
+    QPushButton* upBtn_ = nullptr;
+    QPushButton* downBtn_ = nullptr;
+    std::vector<TrimRange> segments_;
 };
 
 } // namespace wc

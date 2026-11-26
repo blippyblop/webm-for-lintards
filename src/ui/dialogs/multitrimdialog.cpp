@@ -1,146 +1,129 @@
 #include "ui/dialogs/multitrimdialog.h"
-#include "ui/scrubpreview.h"
+#include "ui/dialogs/trimdialog.h"
 
 #include <algorithm>
 #include <utility>
-#include <vector>
 
-#include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
-#include <QHeaderView>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
-#include <QSpinBox>
-#include <QStringList>
-#include <QTableWidget>
 #include <QVBoxLayout>
 
 namespace wc {
 
-namespace {
-constexpr double kFallbackMaxSeconds = 1e6;
-
-double maxSecondsFor(const VideoInfo& info) {
-    return info.durationSeconds > 0.0 ? info.durationSeconds : kFallbackMaxSeconds;
-}
-int maxFrameFor(const VideoInfo& info) {
-    const long long c = info.frameCount();
-    return c > 0 ? static_cast<int>(c - 1) : 0;
-}
-} // namespace
-
 MultiTrimDialog::MultiTrimDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
                                  const QString& inputPath, const QString& ffmpegPath)
-    : QDialog(parent), model_(model), info_(info), maxSeconds_(maxSecondsFor(info)) {
+    : QDialog(parent), model_(model), info_(info), inputPath_(inputPath), ffmpegPath_(ffmpegPath) {
     setWindowTitle(tr("Multi-Trim"));
-    resize(600, 700);
+    resize(560, 480);
 
     auto* layout = new QVBoxLayout(this);
+    layout->addWidget(new QLabel(
+        tr("Segments are concatenated in the order shown. Use \"Add segment…\" to configure one in the trim scrubber."),
+        this));
 
-    scrub_ = new ScrubPreview(this);
-    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
-    scrub_->setFilters(&model_);
-    layout->addWidget(scrub_);
+    list_ = new QListWidget(this);
+    layout->addWidget(list_, 1);
 
-    if (info_.durationSeconds > 0.0) {
-        layout->addWidget(new QLabel(
-            tr("Source: %1 frames @ %2 fps").arg(maxFrameFor(info) + 1)
-                .arg(info_.frameRateValue(), 0, 'f', 2), this));
-    }
-
-    table_ = new QTableWidget(0, 2, this);
-    table_->setHorizontalHeaderLabels({tr("Start frame"), tr("End frame")});
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    table_->verticalHeader()->setVisible(false);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setSelectionMode(QAbstractItemView::SingleSelection);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    layout->addWidget(table_, 1);
-
-    auto* buttonRow = new QHBoxLayout;
-    addButton_ = new QPushButton(tr("Add segment"), this);
-    removeButton_ = new QPushButton(tr("Remove segment"), this);
-    buttonRow->addWidget(addButton_);
-    buttonRow->addWidget(removeButton_);
-    auto* setStartBtn = new QPushButton(tr("Start at playhead"), this);
-    auto* setEndBtn = new QPushButton(tr("End at playhead"), this);
-    buttonRow->addWidget(setStartBtn);
-    buttonRow->addWidget(setEndBtn);
-    buttonRow->addStretch(1);
-    layout->addLayout(buttonRow);
+    auto* row = new QHBoxLayout;
+    addBtn_ = new QPushButton(tr("Add segment…"), this);
+    editBtn_ = new QPushButton(tr("Edit…"), this);
+    removeBtn_ = new QPushButton(tr("Remove"), this);
+    upBtn_ = new QPushButton(tr("Move up"), this);
+    downBtn_ = new QPushButton(tr("Move down"), this);
+    row->addWidget(addBtn_);
+    row->addWidget(editBtn_);
+    row->addWidget(removeBtn_);
+    row->addSpacing(12);
+    row->addWidget(upBtn_);
+    row->addWidget(downBtn_);
+    row->addStretch(1);
+    layout->addLayout(row);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &MultiTrimDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &MultiTrimDialog::reject);
 
-    connect(addButton_, &QPushButton::clicked, this, [this]() {
-        double startSec = 0.0;
-        if (table_->rowCount() > 0) {
-            if (auto* last = qobject_cast<QSpinBox*>(table_->cellWidget(table_->rowCount() - 1, 1)))
-                startSec = info_.timeOfFrame(last->value());
+    segments_ = model_.multiTrim;
+    refreshList();
+
+    connect(addBtn_, &QPushButton::clicked, this, &MultiTrimDialog::addSegmentFromTrim);
+    connect(editBtn_, &QPushButton::clicked, this, &MultiTrimDialog::editSelected);
+    connect(removeBtn_, &QPushButton::clicked, this, [this]() {
+        const int r = list_->currentRow();
+        if (r >= 0 && r < static_cast<int>(segments_.size())) {
+            segments_.erase(segments_.begin() + r);
+            refreshList();
+            if (r < list_->count()) list_->setCurrentRow(r);
         }
-        if (startSec < 0.0 || startSec > maxSeconds_) startSec = 0.0;
-        addRow(startSec, info_.durationSeconds);
     });
-    connect(removeButton_, &QPushButton::clicked, this, [this]() {
-        const int row = table_->currentRow();
-        if (row >= 0) table_->removeRow(row);
+    connect(upBtn_, &QPushButton::clicked, this, [this]() {
+        const int r = list_->currentRow();
+        if (r > 0 && r < static_cast<int>(segments_.size())) {
+            std::swap(segments_[r], segments_[r - 1]);
+            refreshList();
+            list_->setCurrentRow(r - 1);
+        }
     });
-
-    auto setAtPlayhead = [this](int column) {
-        int row = table_->currentRow();
-        if (row < 0 && table_->rowCount() > 0) row = table_->rowCount() - 1;
-        if (row < 0) return;
-        if (auto* spin = qobject_cast<QSpinBox*>(table_->cellWidget(row, column)))
-            spin->setValue(info_.frameAt(scrub_ ? scrub_->currentTime() : 0.0));
-    };
-    connect(setStartBtn, &QPushButton::clicked, this, [setAtPlayhead]() { setAtPlayhead(0); });
-    connect(setEndBtn, &QPushButton::clicked, this, [setAtPlayhead]() { setAtPlayhead(1); });
-
-    for (const TrimRange& range : model_.multiTrim)
-        addRow(range.start, range.end > range.start ? range.end : maxSeconds_);
+    connect(downBtn_, &QPushButton::clicked, this, [this]() {
+        const int r = list_->currentRow();
+        if (r >= 0 && r + 1 < static_cast<int>(segments_.size())) {
+            std::swap(segments_[r], segments_[r + 1]);
+            refreshList();
+            list_->setCurrentRow(r + 1);
+        }
+    });
+    connect(list_, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { editSelected(); });
 }
 
-void MultiTrimDialog::addRow(double start, double end) {
-    const int maxF = maxFrameFor(info_);
-    const int row = table_->rowCount();
-    table_->insertRow(row);
+void MultiTrimDialog::refreshList() {
+    const int cur = list_->currentRow();
+    list_->clear();
+    for (size_t i = 0; i < segments_.size(); ++i) {
+        const TrimRange& s = segments_[i];
+        const int sf = info_.frameAt(s.start);
+        const int ef = info_.frameAt(s.end > s.start ? s.end : s.start);
+        list_->addItem(tr("%1. frames %2–%3  (%4 s)")
+                           .arg(static_cast<int>(i) + 1)
+                           .arg(sf)
+                           .arg(std::max(sf, ef - 1))
+                           .arg(s.end - s.start, 0, 'f', 2));
+    }
+    if (cur >= 0 && cur < list_->count()) list_->setCurrentRow(cur);
+}
 
-    auto makeSpin = [this, maxF](double valueSec) {
-        auto* spin = new QSpinBox(table_);
-        spin->setRange(0, maxF);
-        spin->setSuffix(tr(" f"));
-        spin->setValue(std::clamp(info_.frameAt(valueSec), 0, maxF));
-        spin->setFrame(false);
-        return spin;
-    };
+void MultiTrimDialog::addSegmentFromTrim() {
+    FilterModel tmp;
+    TrimDialog dlg(tmp, info_, this, inputPath_, ffmpegPath_);
+    dlg.setWindowTitle(tr("Add segment"));
+    if (dlg.exec() == QDialog::Accepted && tmp.trim && tmp.trim->end > tmp.trim->start) {
+        segments_.push_back(*tmp.trim);
+        refreshList();
+        list_->setCurrentRow(list_->count() - 1);
+    }
+}
 
-    table_->setCellWidget(row, 0, makeSpin(start));
-    table_->setCellWidget(row, 1, makeSpin(end));
+void MultiTrimDialog::editSelected() {
+    const int r = list_->currentRow();
+    if (r < 0 || r >= static_cast<int>(segments_.size())) return;
+    FilterModel tmp;
+    tmp.trim = segments_[r];
+    TrimDialog dlg(tmp, info_, this, inputPath_, ffmpegPath_);
+    dlg.setWindowTitle(tr("Edit segment"));
+    if (dlg.exec() == QDialog::Accepted) {
+        if (tmp.trim && tmp.trim->end > tmp.trim->start)
+            segments_[r] = *tmp.trim;
+        else
+            segments_.erase(segments_.begin() + r);
+        refreshList();
+    }
 }
 
 void MultiTrimDialog::accept() {
-    std::vector<TrimRange> ranges;
-    const int maxF = maxFrameFor(info_);
-
-    for (int row = 0; row < table_->rowCount(); ++row) {
-        auto* startSpin = qobject_cast<QSpinBox*>(table_->cellWidget(row, 0));
-        auto* endSpin = qobject_cast<QSpinBox*>(table_->cellWidget(row, 1));
-        if (!startSpin || !endSpin) continue;
-
-        const int sF = std::clamp(startSpin->value(), 0, maxF);
-        const int eF = std::clamp(endSpin->value(), 0, maxF);
-        if (eF <= sF) continue;
-        const double startSec = info_.timeOfFrame(sF);
-        const double endSec = (eF >= maxF) ? info_.durationSeconds : info_.timeOfFrame(eF + 1);
-        if (endSec > startSec) ranges.push_back(TrimRange{startSec, endSec});
-    }
-
-    std::sort(ranges.begin(), ranges.end(),
-              [](const TrimRange& a, const TrimRange& b) { return a.start < b.start; });
-    model_.multiTrim = std::move(ranges);
+    model_.multiTrim = segments_;
     QDialog::accept();
 }
 

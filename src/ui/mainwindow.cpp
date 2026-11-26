@@ -150,6 +150,9 @@ void MainWindow::buildUi() {
     actionRow->addStretch(1);
     convertBtn_ = new QPushButton(tr("Convert"), left);
     convertBtn_->setDefault(true);
+    convertBtn_->setStyleSheet(QStringLiteral(
+        "QPushButton{background-color:#9CCC65;color:#111;font-weight:bold;padding:6px 16px;"
+        "border-radius:4px;} QPushButton:disabled{background-color:#DCEDC8;color:#777;}"));
     actionRow->addWidget(convertBtn_);
     lv->addLayout(actionRow);
 
@@ -290,6 +293,18 @@ void MainWindow::buildUi() {
     connect(filterPanel_, &FilterPanel::filterClicked, this, &MainWindow::onFilterClicked);
     connect(applied_, &AppliedFiltersPanel::modifyRequested, this, &MainWindow::onFilterClicked);
     connect(applied_, &AppliedFiltersPanel::deleteRequested, this, &MainWindow::onDeleteFilter);
+    connect(applied_, &AppliedFiltersPanel::modelLoaded, this, [this](const FilterModel& loaded) {
+        filters_ = loaded;
+        if (filterPanel_) {
+            filterPanel_->setLoop(filters_.loop);
+            filterPanel_->setReverse(filters_.reverse);
+        }
+        syncTimelineTrim();
+        updateCropOverlay();
+        refreshAppliedFilters();
+        requestPreview(currentFrame_);
+        appendLog(tr("Loaded filters from JSON"));
+    });
     connect(filterPanel_, &FilterPanel::loopToggled, this, &MainWindow::onLoopToggled);
     connect(filterPanel_, &FilterPanel::reverseToggled, this, &MainWindow::onReverseToggled);
     connect(timeline_, &TimelineWidget::seekRequested, this, &MainWindow::onSeek);
@@ -565,7 +580,8 @@ QString MainWindow::defaultOutputPath() const {
     const QFileInfo fi(inputPath_);
     const bool webm = (encoding_.codec == VideoCodec::VP8 || encoding_.codec == VideoCodec::VP9);
     const QString ext = webm ? QStringLiteral("webm") : QStringLiteral("mp4");
-    return fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName() + QLatin1Char('.') + ext;
+    const QString dir = outputDir_.isEmpty() ? fi.absolutePath() : outputDir_;
+    return dir + QLatin1Char('/') + fi.completeBaseName() + QLatin1Char('.') + ext;
 }
 
 void MainWindow::onEncodeClicked() {

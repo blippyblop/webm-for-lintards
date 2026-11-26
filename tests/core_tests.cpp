@@ -293,6 +293,31 @@ static void testPreviewFilter() {
     CHECK(buildPreviewVideoFilter(g, info, 0.0).find("scale=1280:720:flags=lanczos") != std::string::npos);
 }
 
+static void testDynamicRateExpression() {
+    VideoInfo info = sampleInfo();
+    FilterModel f = emptyFilters();
+    f.dynamicRateEnabled = true;
+    f.dynamicRate = {KeyframeRate{5.0, 1.0}, KeyframeRate{10.0, 0.5}, KeyframeRate{15.0, 1.0}};
+    f.trim = TrimRange{5.0, 20.0};   // keyframes shifted by clip start
+    f.dynamicRateSmoothing = false;
+    EncodingOptions e; e.twoPass = false; e.sizeLimitBytes = 0;
+    CommandBuilder b(info, f, e);
+    auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
+    bool hasSetpts = false;
+    for (const auto& t : p[0].args) if (t.find("setpts=") != std::string::npos) hasSetpts = true;
+    CHECK(hasSetpts);
+    CHECK(hasSubstr(p[0].args, "STARTPTS"));
+    CHECK(hasSubstr(p[0].args, "lte(T,"));          // correct setpts variable
+    CHECK(!hasSubstr(p[0].args, "lte(t,"));         // old invalid variable gone
+
+    // Smoothing should emit a blend expression too.
+    f.dynamicRateSmoothing = true;
+    f.dynamicRateSmoothingOverlap = 1.0;
+    CommandBuilder b2(info, f, e);
+    auto p2 = b2.build("/tmp/in.mp4", "/tmp/out.webm");
+    CHECK(hasSubstr(p2[0].args, "lte(T,"));
+}
+
 static void testBuilderStabilization() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
@@ -339,6 +364,7 @@ int main() {
     testEncodingDefaultsAndAudioMap();
     testOutputDurationWithTrim();
     testPreviewFilter();
+    testDynamicRateExpression();
     testBuilderStabilization();
     testBuilderGrid();
 
