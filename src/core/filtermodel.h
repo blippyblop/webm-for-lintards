@@ -140,7 +140,7 @@ struct EncodingOptions {
     int audioBitrateKbps = 128;
     int crf = 30;                  // variable rate-control mode
 
-    bool twoPass = false;
+    bool twoPass = true;           // two-pass encode by default
     bool hq = false;               // -lag-in-frames 16 -auto-alt-ref 1
     bool useAlpha = false;         // yuva420p
     bool hdr = false;              // 10-bit / bt.2020

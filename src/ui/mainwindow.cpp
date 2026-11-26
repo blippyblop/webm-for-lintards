@@ -25,6 +25,7 @@
 #include "ui/dialogs/delayaudiodialog.h"
 
 #include "core/commandbuilder.h"
+#include "core/previewfilter.h"
 #include "core/mediaprobe.h"
 #include "core/encoder.h"
 #include "core/ytdlprunner.h"
@@ -69,6 +70,9 @@ namespace wc {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     probe_ = new MediaProbe(ffprobePath_);
     preview_ = new PreviewEngine(this);
+    preview_->setFilterProvider([this](double t) -> QString {
+        return QString::fromStdString(buildPreviewVideoFilter(filters_, info_, t));
+    });
     encoder_ = new Encoder(this);
     ytdlp_ = new YtdlpRunner(this);
 
@@ -96,7 +100,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     setAcceptDrops(true);
     resize(1200, 780);
-    setWindowTitle(tr("WebM for Lazys (Qt)"));
+    setWindowTitle(tr("WebM for Lintards (Qt)"));
 }
 
 MainWindow::~MainWindow() {
@@ -125,29 +129,39 @@ void MainWindow::buildUi() {
     lv->addWidget(canvas_, 1);
     lv->addWidget(timeline_);
 
-    auto* ioRow = new QHBoxLayout;
-    ioRow->addWidget(new QLabel(tr("Input:"), left));
+    // Input and output stacked vertically.
+    auto* inRow = new QHBoxLayout;
+    inRow->addWidget(new QLabel(tr("Input:"), left));
     inputEdit_ = new QLineEdit(left);
     inputEdit_->setPlaceholderText(tr("no input selected"));
-    ioRow->addWidget(inputEdit_, 1);
+    inRow->addWidget(inputEdit_, 1);
     auto* browseIn = new QPushButton(tr("Browse…"), left);
-    ioRow->addWidget(browseIn);
-    ioRow->addSpacing(12);
-    ioRow->addWidget(new QLabel(tr("Output:"), left));
+    inRow->addWidget(browseIn);
+    lv->addLayout(inRow);
+
+    auto* outRow = new QHBoxLayout;
+    outRow->addWidget(new QLabel(tr("Output:"), left));
     outputEdit_ = new QLineEdit(left);
-    ioRow->addWidget(outputEdit_, 1);
+    outRow->addWidget(outputEdit_, 1);
     auto* browseOut = new QPushButton(tr("Browse…"), left);
-    ioRow->addWidget(browseOut);
-    ioRow->addSpacing(8);
+    outRow->addWidget(browseOut);
+    lv->addLayout(outRow);
+
+    auto* actionRow = new QHBoxLayout;
+    actionRow->addStretch(1);
     convertBtn_ = new QPushButton(tr("Convert"), left);
     convertBtn_->setDefault(true);
-    ioRow->addWidget(convertBtn_);
-    lv->addLayout(ioRow);
+    actionRow->addWidget(convertBtn_);
+    lv->addLayout(actionRow);
 
     // Right side: flat tabs Filters / Encoding / Audio / Metadata.
     auto* optionsTabs = new QTabWidget(hsplit);
     filterPanel_ = new FilterPanel(optionsTabs);
-    encodingPanel_ = new EncodingPanel(optionsTabs);
+    // NOTE: keep the EncodingPanel container out of the tab widget (and hidden).
+    // It was previously a direct child of the tab widget, where its (empty) body
+    // overlaid the Filters tab and swallowed mouse clicks -> "filters stop working".
+    encodingPanel_ = new EncodingPanel(this);
+    encodingPanel_->hide();
     optionsTabs->addTab(filterPanel_, tr("Filters"));
     optionsTabs->addTab(encodingPanel_->videoTab(), tr("Encoding"));
     optionsTabs->addTab(encodingPanel_->audioTab(), tr("Audio"));
@@ -319,8 +333,8 @@ void MainWindow::buildMenus() {
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* aboutAct = new QAction(tr("&About"), this);
     connect(aboutAct, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, tr("About WebM for Lazys"),
-                           tr("WebM for Lazys (Qt)\n\nA Linux-first Qt port of the "
+        QMessageBox::about(this, tr("About WebM for Lintards"),
+                           tr("WebM for Lintards (Qt)\n\nA Linux-first Qt port of the "
                               "WebMConverter GUI. Uses ffmpeg and yt-dlp.\nMIT licensed."));
     });
     helpMenu->addAction(aboutAct);
@@ -385,7 +399,7 @@ void MainWindow::loadFile(const QString& path) {
                   .arg(info_.height)
                   .arg(info_.frameRateValue(), 0, 'f', 2)
                   .arg(info_.durationSeconds, 0, 'f', 2));
-    setWindowTitle(tr("%1 — WebM for Lazys (Qt)").arg(fi.fileName()));
+    setWindowTitle(tr("%1 — WebM for Lintards (Qt)").arg(fi.fileName()));
 }
 
 void MainWindow::resetFiltersForNewFile() {
@@ -524,11 +538,14 @@ void MainWindow::onDeleteFilter(FilterKind kind) {
     updateCropOverlay();
     syncTimelineTrim();
     refreshAppliedFilters();
+    requestPreview(currentFrame_);
     appendLog(tr("Removed filter"));
 }
 
 void MainWindow::refreshAppliedFilters() {
     if (applied_) applied_->setModel(filters_);
+    // Filters changed -> cached preview frames are now stale.
+    if (preview_) preview_->clearCache();
 }
 
 QString MainWindow::formatHms(double seconds) const {

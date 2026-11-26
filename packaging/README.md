@@ -1,6 +1,6 @@
 # Packaging
 
-Linux packaging assets for **WebM for Lazys** (`webmconverter-qt`), a Qt 6
+Linux packaging assets for **WebM for Lintards** (`webmconverter-qt`), a Qt 6
 (Core/Gui/Widgets) GUI that converts videos to WebM/MP4 with ffmpeg.
 
 | File | Purpose |

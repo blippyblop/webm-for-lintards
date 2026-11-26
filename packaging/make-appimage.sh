@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# make-appimage.sh -- build a self-contained AppImage for WebM for Lazys
+# make-appimage.sh -- build a self-contained AppImage for WebM for Lintards
 #
-# The application ("WebM for Lazys", executable `webmconverter-qt`) is a Qt 6
+# The application ("WebM for Lintards", executable `webmconverter-qt`) is a Qt 6
 # Widgets GUI. This script bundles the Qt libraries and the executable into a
 # single relocatable AppImage using linuxdeploy + linuxdeploy-plugin-qt.
 #
@@ -38,7 +38,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="webmconverter-qt"
-APPNAME="WebM for Lazys"
+APPNAME="WebM for Lintards"
 ICON_NAME="io.github.webmforlazies.webmconverter"
 ARCH="x86_64"
 

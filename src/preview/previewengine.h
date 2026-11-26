@@ -1,10 +1,7 @@
 #pragma once
-// Decodes single preview frames on demand via ffmpeg, with an LRU cache and
-// coalescing of rapid seek requests. Emits frames as QImage on the UI thread.
-//
-// Strategy (see docs/ARCHITECTURE.md): `ffmpeg -ss <t> -i <in> -frames:v 1
-// -f image2pipe -vcodec png -` -> QImage::fromData. A future optimisation is to
-// decode directly with libavcodec behind this same interface.
+// Decodes preview frames via ffmpeg with an optional per-frame filter chain,
+// caches them, and prefetches a neighbourhood around the cursor in the
+// background so scrubbing stays smooth.
 
 #include "core/videoinfo.h"
 
@@ -12,6 +9,9 @@
 #include <QImage>
 #include <QProcess>
 #include <QString>
+#include <QList>
+
+#include <functional>
 
 namespace wc {
 
@@ -29,6 +29,11 @@ public:
 
     void requestFrame(int frame);
     void cancel();
+    void clearCache();
+
+    // Per-frame filter chain provider (seconds -> ffmpeg -vf chain). Setting it
+    // invalidates the cache because the same frame now renders differently.
+    void setFilterProvider(std::function<QString(double)> fn);
 
     bool hasSource() const { return !sourcePath_.isEmpty(); }
     double frameToSeconds(int frame) const { return info_.timeOfFrame(frame); }
@@ -42,7 +47,9 @@ private slots:
     void onProcFinished(int exitCode, QProcess::ExitStatus status);
 
 private:
-    void startDecode(int frame);
+    void startDecode(int frame, bool forDisplay);
+    void schedulePrefetch(int frame);
+    void kickNext();
 
     QString ffmpegPath_ = QStringLiteral("ffmpeg");
     QString sourcePath_;
@@ -50,8 +57,11 @@ private:
     FrameCache* cache_ = nullptr;
     QProcess* proc_ = nullptr;
     bool busy_ = false;
+    bool currentForDisplay_ = false;
     int currentFrame_ = -1;
     int pendingFrame_ = -1;
+    QList<int> prefetchQueue_;
+    std::function<QString(double)> filterProvider_;
 };
 
 } // namespace wc

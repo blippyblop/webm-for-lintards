@@ -4,10 +4,10 @@
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("WebM for Lazys"));
-    QApplication::setApplicationDisplayName(QStringLiteral("WebM for Lazys"));
+    QApplication::setApplicationName(QStringLiteral("WebM for Lintards"));
+    QApplication::setApplicationDisplayName(QStringLiteral("WebM for Lintards"));
     QApplication::setOrganizationName(QStringLiteral("webmforlazies"));
-    QApplication::setApplicationVersion(QStringLiteral("0.3.0"));
+    QApplication::setApplicationVersion(QStringLiteral("0.4.0"));
 
     wc::MainWindow window;
     window.show();

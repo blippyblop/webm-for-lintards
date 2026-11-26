@@ -128,11 +128,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: WebM for Lazys ${{ github.ref_name }}
+          name: WebM for Lintards ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: false
           body: |
-            Automated build of **WebM for Lazys (Qt)** ${{ github.ref_name }}.
+            Automated build of **WebM for Lintards (Qt)** ${{ github.ref_name }}.
 
             ### Downloads
             - **Linux**: `*.AppImage` — make it executable (`chmod +x`) and run. A portable `tar.gz` is also provided.

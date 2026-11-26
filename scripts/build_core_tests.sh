@@ -21,6 +21,7 @@ $CXX -std=c++17 -O2 -Wall -Wextra \
   src/core/sizecalc.cpp \
   src/core/progressparser.cpp \
   src/core/commandbuilder.cpp \
+  src/core/previewfilter.cpp \
   tests/core_tests.cpp \
   -o build/core_tests
 

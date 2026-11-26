@@ -1,4 +1,4 @@
-# Contributing to WebM for Lazys
+# Contributing to WebM for Lintards
 
 Thanks for wanting to help. This is a small, deliberately unglamorous project:
 the goal is **feature parity with the original Windows tool on Linux, Windows and

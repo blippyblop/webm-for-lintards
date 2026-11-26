@@ -1,6 +1,6 @@
 #pragma once
-// Scrubbing trim popup: preview + timeline, "Set Start"/"Set End" buttons,
-// duration readout. Mirrors the original WebMConverter Trim window.
+// Scrubbing trim popup: preview + timeline (with filter preview), frame-based
+// start/end, "Set Start"/"Set End", and a Play/Stop preview of the trim.
 
 #include <QDialog>
 #include <QImage>
@@ -9,9 +9,11 @@
 #include "core/filtermodel.h"
 #include "core/videoinfo.h"
 
-class QDoubleSpinBox;
+class QSpinBox;
 class QCheckBox;
 class QLabel;
+class QPushButton;
+class QTimer;
 
 namespace wc {
 
@@ -35,10 +37,13 @@ private slots:
     void setStartHere();
     void setEndHere();
     void syncFromSpins();
+    void togglePlay();
+    void playTick();
 
 private:
-    void gotoTime(double seconds);
+    void gotoFrame(int frame);
     void updateRangeUi();
+    int maxFrame() const;
 
     FilterModel& model_;
     const VideoInfo& info_;
@@ -47,13 +52,17 @@ private:
     PreviewEngine* preview_ = nullptr;
     PreviewCanvas* canvas_ = nullptr;
     TimelineWidget* timeline_ = nullptr;
-    QDoubleSpinBox* startSpin_ = nullptr;
-    QDoubleSpinBox* endSpin_ = nullptr;
+    QSpinBox* startFrame_ = nullptr;
+    QSpinBox* endFrame_ = nullptr;
     QCheckBox* wholeClip_ = nullptr;
     QLabel* currentLabel_ = nullptr;
     QLabel* durationLabel_ = nullptr;
+    QPushButton* playBtn_ = nullptr;
+    QTimer* playTimer_ = nullptr;
 
-    double currentTime_ = 0.0;
+    bool playing_ = false;
+    int savedFrame_ = 0;
+    int currentFrameIndex_ = 0;
 };
 
 } // namespace wc

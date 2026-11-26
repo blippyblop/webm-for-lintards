@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QKeyEvent>
 #include <QPaintEvent>
 #include <QFontMetrics>
 #include <QToolTip>
@@ -16,6 +17,7 @@ TimelineWidget::TimelineWidget(QWidget* parent) : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setMouseTracking(true);
     setCursor(Qt::PointingHandCursor);
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 void TimelineWidget::setDuration(double seconds) {
@@ -119,6 +121,7 @@ void TimelineWidget::paintEvent(QPaintEvent*) {
 }
 
 void TimelineWidget::mousePressEvent(QMouseEvent* e) {
+    setFocus(Qt::MouseFocusReason);
     if (e->button() == Qt::LeftButton && duration_ > 0.0) {
         emit seekRequested(timeAtX(e->pos().x()));
     }
@@ -140,11 +143,25 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* e) {
 void TimelineWidget::wheelEvent(QWheelEvent* e) {
     const int dy = e->angleDelta().y();
     if (dy != 0) {
-        emit frameStepRequested(dy > 0 ? 1 : -1);
+        const int step = (e->modifiers() & Qt::ShiftModifier) ? 5 : 1;
+        emit frameStepRequested(dy > 0 ? step : -step);
         e->accept();
     } else {
         QWidget::wheelEvent(e);
     }
+}
+
+void TimelineWidget::keyPressEvent(QKeyEvent* e) {
+    switch (e->key()) {
+        case Qt::Key_Left:  emit frameStepRequested(-1); e->accept(); return;
+        case Qt::Key_Right: emit frameStepRequested(1);  e->accept(); return;
+        case Qt::Key_PageUp:   emit frameStepRequested(-5); e->accept(); return;
+        case Qt::Key_PageDown: emit frameStepRequested(5);  e->accept(); return;
+        case Qt::Key_Home:  emit seekRequested(0.0); e->accept(); return;
+        case Qt::Key_End:   emit seekRequested(duration_); e->accept(); return;
+        default: break;
+    }
+    QWidget::keyPressEvent(e);
 }
 
 } // namespace wc

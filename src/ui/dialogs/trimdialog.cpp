@@ -3,14 +3,16 @@
 #include "ui/previewcanvas.h"
 #include "ui/timelinewidget.h"
 #include "preview/previewengine.h"
+#include "core/previewfilter.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QCheckBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QDialogButtonBox>
+#include <QTimer>
 #include <QSignalBlocker>
 
 #include <algorithm>
@@ -21,7 +23,7 @@ TrimDialog::TrimDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
                        const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info), inputPath_(inputPath) {
     setWindowTitle(tr("Trim"));
-    resize(960, 680);
+    resize(960, 700);
 
     auto* layout = new QVBoxLayout(this);
 
@@ -35,42 +37,43 @@ TrimDialog::TrimDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     timeline_->setFrameRate(info_.frameRateValue() > 0.0 ? info_.frameRateValue() : 30.0);
     layout->addWidget(timeline_);
 
-    // Current time / duration readouts.
-    currentLabel_ = new QLabel(tr("0.00 s"), this);
-    durationLabel_ = new QLabel(tr("0.00 s"), this);
+    currentLabel_ = new QLabel(tr("frame 0"), this);
+    durationLabel_ = new QLabel(tr("0 frames"), this);
     auto* timeRow = new QHBoxLayout;
+    timeRow->addStretch(1);
     timeRow->addWidget(new QLabel(tr("Current:"), this));
     timeRow->addWidget(currentLabel_);
     timeRow->addSpacing(24);
-    timeRow->addWidget(new QLabel(tr("Duration:"), this));
+    timeRow->addWidget(new QLabel(tr("Trim length:"), this));
     timeRow->addWidget(durationLabel_);
     timeRow->addStretch(1);
     layout->addLayout(timeRow);
 
-    // Range controls.
-    const double maxT = std::max(1.0, info_.durationSeconds);
-    startSpin_ = new QDoubleSpinBox(this);
-    endSpin_ = new QDoubleSpinBox(this);
-    for (QDoubleSpinBox* sp : {startSpin_, endSpin_}) {
-        sp->setRange(0.0, maxT);
-        sp->setDecimals(3);
-        sp->setSuffix(tr(" s"));
-        sp->setSingleStep(0.1);
+    // Frame-based range controls, centred.
+    startFrame_ = new QSpinBox(this);
+    endFrame_ = new QSpinBox(this);
+    for (QSpinBox* sp : {startFrame_, endFrame_}) {
+        sp->setRange(0, std::max(0, maxFrame()));
+        sp->setSuffix(tr(" f"));
     }
     wholeClip_ = new QCheckBox(tr("Use whole clip"), this);
 
     auto* setStartBtn = new QPushButton(tr("Set Start:"), this);
     auto* setEndBtn = new QPushButton(tr("Set End:"), this);
+    playBtn_ = new QPushButton(tr("Play preview"), this);
 
     auto* rangeRow = new QHBoxLayout;
-    rangeRow->addWidget(new QLabel(tr("Start:"), this));
-    rangeRow->addWidget(startSpin_);
+    rangeRow->addStretch(1);
+    rangeRow->addWidget(new QLabel(tr("Start frame:"), this));
+    rangeRow->addWidget(startFrame_);
     rangeRow->addWidget(setStartBtn);
     rangeRow->addSpacing(16);
-    rangeRow->addWidget(new QLabel(tr("End:"), this));
-    rangeRow->addWidget(endSpin_);
+    rangeRow->addWidget(new QLabel(tr("End frame:"), this));
+    rangeRow->addWidget(endFrame_);
     rangeRow->addWidget(setEndBtn);
     rangeRow->addSpacing(16);
+    rangeRow->addWidget(playBtn_);
+    rangeRow->addSpacing(8);
     rangeRow->addWidget(wholeClip_);
     rangeRow->addStretch(1);
     layout->addLayout(rangeRow);
@@ -80,73 +83,89 @@ TrimDialog::TrimDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     connect(buttons, &QDialogButtonBox::accepted, this, &TrimDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    // Initial range from the model.
-    double s = 0.0;
-    double e = info_.durationSeconds;
+    // Initial range from the model (converted to frames).
+    const int total = maxFrame();
     const bool whole = !model_.trim.has_value();
+    int sFrame = 0;
+    int eFrame = total;
     if (model_.trim) {
-        s = std::clamp(model_.trim->start, 0.0, maxT);
-        e = (model_.trim->end > 0.0) ? std::clamp(model_.trim->end, 0.0, maxT) : info_.durationSeconds;
+        sFrame = std::clamp(info_.frameAt(model_.trim->start), 0, total);
+        const double endSec = model_.trim->end > 0.0 ? model_.trim->end : info_.durationSeconds;
+        eFrame = std::clamp(info_.frameAt(endSec), sFrame, total);
     }
-    startSpin_->setValue(s);
-    endSpin_->setValue(e);
+    startFrame_->setValue(sFrame);
+    endFrame_->setValue(eFrame);
     wholeClip_->setChecked(whole);
-    startSpin_->setEnabled(!whole);
-    endSpin_->setEnabled(!whole);
+    startFrame_->setEnabled(!whole);
+    endFrame_->setEnabled(!whole);
 
-    connect(startSpin_, &QDoubleSpinBox::valueChanged, this, &TrimDialog::syncFromSpins);
-    connect(endSpin_, &QDoubleSpinBox::valueChanged, this, &TrimDialog::syncFromSpins);
+    connect(startFrame_, &QSpinBox::valueChanged, this, &TrimDialog::syncFromSpins);
+    connect(endFrame_, &QSpinBox::valueChanged, this, &TrimDialog::syncFromSpins);
     connect(wholeClip_, &QCheckBox::toggled, this, [this](bool on) {
-        startSpin_->setEnabled(!on);
-        endSpin_->setEnabled(!on);
+        startFrame_->setEnabled(!on);
+        endFrame_->setEnabled(!on);
         if (on) {
-            QSignalBlocker b1(startSpin_), b2(endSpin_);
-            startSpin_->setValue(0.0);
-            endSpin_->setValue(info_.durationSeconds);
+            QSignalBlocker b1(startFrame_), b2(endFrame_);
+            startFrame_->setValue(0);
+            endFrame_->setValue(maxFrame());
         }
         updateRangeUi();
     });
     connect(setStartBtn, &QPushButton::clicked, this, &TrimDialog::setStartHere);
     connect(setEndBtn, &QPushButton::clicked, this, &TrimDialog::setEndHere);
+    connect(playBtn_, &QPushButton::clicked, this, &TrimDialog::togglePlay);
     connect(timeline_, &TimelineWidget::seekRequested, this, &TrimDialog::onSeek);
     connect(timeline_, &TimelineWidget::frameStepRequested, this, &TrimDialog::onFrameStep);
 
-    // Preview engine (optional: only if we have a source path).
+    playTimer_ = new QTimer(this);
+    connect(playTimer_, &QTimer::timeout, this, &TrimDialog::playTick);
+
+    // Preview with the current filters rendered.
     if (!inputPath_.isEmpty()) {
         preview_ = new PreviewEngine(this);
         preview_->setFfmpegPath(ffmpegPath.isEmpty() ? QStringLiteral("ffmpeg") : ffmpegPath);
+        preview_->setFilterProvider([this](double t) -> QString {
+            return QString::fromStdString(buildPreviewVideoFilter(model_, info_, t));
+        });
         connect(preview_, &PreviewEngine::frameReady, this, &TrimDialog::onFrameReady);
         preview_->setSource(inputPath_, info_);
     }
 
     updateRangeUi();
-    gotoTime(s);
+    gotoFrame(sFrame);
 }
 
 TrimDialog::~TrimDialog() {
+    if (playTimer_) playTimer_->stop();
     if (preview_) preview_->cancel();
 }
 
-void TrimDialog::gotoTime(double seconds) {
-    const double dur = info_.durationSeconds;
-    if (seconds < 0.0) seconds = 0.0;
-    if (dur > 0.0 && seconds > dur) seconds = dur;
-    currentTime_ = seconds;
+int TrimDialog::maxFrame() const {
+    const long long c = info_.frameCount();
+    if (c <= 0) return 0;
+    return static_cast<int>(c - 1);
+}
+
+void TrimDialog::gotoFrame(int frame) {
+    const int total = maxFrame();
+    frame = std::clamp(frame, 0, total);
+    currentFrameIndex_ = frame;
+    const double seconds = info_.timeOfFrame(frame);
     timeline_->setCurrentTime(seconds);
-    const int frame = info_.frameAt(seconds);
     const double fps = info_.frameRateValue() > 0.0 ? info_.frameRateValue() : 30.0;
-    currentLabel_->setText(tr("%1 s  (frame %2 @ %3 fps)")
-                               .arg(seconds, 0, 'f', 2)
+    currentLabel_->setText(tr("%1  (%2 s @ %3 fps)")
                                .arg(frame)
+                               .arg(seconds, 0, 'f', 2)
                                .arg(fps, 0, 'f', 2));
     if (preview_ && preview_->hasSource()) preview_->requestFrame(frame);
 }
 
-void TrimDialog::onSeek(double seconds) { gotoTime(seconds); }
+void TrimDialog::onSeek(double seconds) {
+    gotoFrame(info_.frameAt(seconds));
+}
 
 void TrimDialog::onFrameStep(int delta) {
-    const double fps = info_.frameRateValue() > 0.0 ? info_.frameRateValue() : 30.0;
-    gotoTime(currentTime_ + delta / fps);
+    gotoFrame(currentFrameIndex_ + delta);
 }
 
 void TrimDialog::onFrameReady(int frame, const QImage& image) {
@@ -156,42 +175,71 @@ void TrimDialog::onFrameReady(int frame, const QImage& image) {
 
 void TrimDialog::setStartHere() {
     wholeClip_->setChecked(false);
-    startSpin_->setValue(currentTime_);
+    startFrame_->setValue(currentFrameIndex_);
 }
 
 void TrimDialog::setEndHere() {
     wholeClip_->setChecked(false);
-    endSpin_->setValue(currentTime_);
+    endFrame_->setValue(currentFrameIndex_);
 }
 
 void TrimDialog::syncFromSpins() {
-    double s = startSpin_->value();
-    double e = endSpin_->value();
-    if (e < s) {
-        QSignalBlocker b(endSpin_);
-        endSpin_->setValue(s);
+    if (endFrame_->value() < startFrame_->value()) {
+        QSignalBlocker b(endFrame_);
+        endFrame_->setValue(startFrame_->value());
     }
     updateRangeUi();
 }
 
 void TrimDialog::updateRangeUi() {
-    const double s = wholeClip_->isChecked() ? 0.0 : startSpin_->value();
-    const double e = wholeClip_->isChecked() ? info_.durationSeconds : endSpin_->value();
-    const double clampedE = std::max(s, e);
-    timeline_->setTrimRange(s, clampedE, true);
-    durationLabel_->setText(tr("%1 s").arg(clampedE - s, 0, 'f', 2));
+    const int sF = wholeClip_->isChecked() ? 0 : startFrame_->value();
+    const int eF = wholeClip_->isChecked() ? maxFrame() : std::max(sF, endFrame_->value());
+    timeline_->setTrimRange(info_.timeOfFrame(sF), info_.timeOfFrame(eF), true);
+    durationLabel_->setText(tr("%1 frames").arg(eF - sF + 1));
+}
+
+void TrimDialog::togglePlay() {
+    if (!playing_) {
+        savedFrame_ = currentFrameIndex_;
+        playing_ = true;
+        playBtn_->setText(tr("Stop"));
+        const int start = wholeClip_->isChecked() ? 0 : startFrame_->value();
+        gotoFrame(start);
+        const double fps = info_.frameRateValue() > 0.0 ? info_.frameRateValue() : 30.0;
+        playTimer_->start(static_cast<int>(std::max(10.0, 1000.0 / fps)));
+    } else {
+        playing_ = false;
+        playBtn_->setText(tr("Play preview"));
+        playTimer_->stop();
+        gotoFrame(savedFrame_);
+    }
+}
+
+void TrimDialog::playTick() {
+    const int end = wholeClip_->isChecked() ? maxFrame() : endFrame_->value();
+    if (currentFrameIndex_ >= end) {
+        togglePlay();   // stop and reset
+        return;
+    }
+    gotoFrame(currentFrameIndex_ + 1);
 }
 
 void TrimDialog::accept() {
+    if (playing_) togglePlay();
     if (wholeClip_->isChecked()) {
         model_.trim.reset();
     } else {
-        const double s = startSpin_->value();
-        const double e = endSpin_->value();
-        if (e <= s)
+        const int sF = startFrame_->value();
+        const int eF = endFrame_->value();
+        if (eF <= sF) {
             model_.trim.reset();
-        else
-            model_.trim = TrimRange{s, e};
+        } else {
+            const double startSec = info_.timeOfFrame(sF);
+            double endSec = (eF >= maxFrame()) ? info_.durationSeconds
+                                               : info_.timeOfFrame(eF + 1);
+            if (endSec <= startSec) endSec = info_.timeOfFrame(eF);
+            model_.trim = TrimRange{startSec, endSec};
+        }
     }
     QDialog::accept();
 }

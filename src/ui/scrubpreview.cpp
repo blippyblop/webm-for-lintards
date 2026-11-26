@@ -3,6 +3,7 @@
 #include "ui/previewcanvas.h"
 #include "ui/timelinewidget.h"
 #include "preview/previewengine.h"
+#include "core/previewfilter.h"
 
 #include <QVBoxLayout>
 #include <QLabel>
@@ -45,6 +46,17 @@ void ScrubPreview::setSource(const QString& path, const VideoInfo& info, const Q
         preview_->setSource(path, info);
     }
     gotoTime(0.0);
+}
+
+void ScrubPreview::setFilters(const FilterModel* model) {
+    model_ = model;
+    if (preview_) {
+        preview_->setFilterProvider([this](double t) -> QString {
+            if (!model_) return QString();
+            return QString::fromStdString(buildPreviewVideoFilter(*model_, info_, t));
+        });
+    }
+    gotoTime(current_);
 }
 
 void ScrubPreview::setDuration(double seconds) {

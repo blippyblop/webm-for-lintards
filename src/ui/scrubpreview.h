@@ -7,6 +7,7 @@
 #include <QString>
 
 #include "core/videoinfo.h"
+#include "core/filtermodel.h"
 
 class QLabel;
 
@@ -25,8 +26,13 @@ public:
     void setSource(const QString& path, const VideoInfo& info, const QString& ffmpegPath = QString());
     void setDuration(double seconds);
     double currentTime() const { return current_; }
+    int currentFrame() const { return info_.frameAt(current_); }
     double duration() const { return duration_; }
     void gotoTime(double seconds);
+    void gotoFrame(int frame) { gotoTime(info_.timeOfFrame(frame)); }
+
+    // Provide the filter state so scrub frames render with filters applied.
+    void setFilters(const FilterModel* model);
 
 signals:
     void timeChanged(double seconds);
@@ -42,6 +48,7 @@ private:
     QLabel* label_ = nullptr;
     PreviewEngine* preview_ = nullptr;
     VideoInfo info_;
+    const FilterModel* model_ = nullptr;
     double current_ = 0.0;
     double duration_ = 0.0;
 };

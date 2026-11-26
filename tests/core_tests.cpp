@@ -3,6 +3,7 @@
 #include "../src/core/commandbuilder.h"
 #include "../src/core/easing.h"
 #include "../src/core/progressparser.h"
+#include "../src/core/previewfilter.h"
 #include "../src/core/sizecalc.h"
 #include "../src/core/videoinfo.h"
 
@@ -110,6 +111,7 @@ static void testBuilderDefaultVp9() {
     FilterModel f = emptyFilters();
     EncodingOptions e;                 // WebM / VP9 / variable / crf 30
     e.sizeLimitBytes = 0;              // clear the 4 MB default to exercise CRF
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto passes = b.build("/tmp/in.mp4", "/tmp/out.webm");
     CHECK(passes.size() == 1);
@@ -129,6 +131,7 @@ static void testBuilderConstantSizeLimit() {
     EncodingOptions e;
     e.rateControl = RateControl::Constant;
     e.sizeLimitBytes = 8LL * 1024 * 1024;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto passes = b.build("/tmp/in.mp4", "/tmp/out.webm");
     const auto& a = passes[0].args;
@@ -145,6 +148,7 @@ static void testBuilderTrimAndCrop() {
     f.trim = TrimRange{5.0, 15.0};
     f.crop = Crop{true, 10, 20, 640, 480};
     EncodingOptions e;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto passes = b.build("/tmp/in.mp4", "/tmp/out.webm");
     const auto& a = passes[0].args;
@@ -179,6 +183,7 @@ static void testBuilderMp4H264AudioDisabled() {
     e.codec = VideoCodec::H264;
     e.format = OutputFormat::MP4;
     e.disableAudio = true;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto passes = b.build("/tmp/in.mp4", "/tmp/out.mp4");
     const auto& a = passes[0].args;
@@ -191,13 +196,13 @@ static void testBuilderAlphaAndHdr() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
     {
-        EncodingOptions e; e.useAlpha = true;
+        EncodingOptions e; e.useAlpha = true; e.twoPass = false;
         CommandBuilder b(info, f, e);
         auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
         CHECK(argAfter(p[0].args, "-pix_fmt") == "yuva420p");
     }
     {
-        EncodingOptions e; e.hdr = true;
+        EncodingOptions e; e.hdr = true; e.twoPass = false;
         CommandBuilder b(info, f, e);
         auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
         CHECK(argAfter(p[0].args, "-pix_fmt") == "yuv420p10le");
@@ -212,6 +217,7 @@ static void testBuilderResizeRotateRate() {
     f.rotateDegrees = 90;
     f.rateFps = 24;
     EncodingOptions e;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
     const auto& a = p[0].args;
@@ -230,6 +236,7 @@ static void testBuilderDynamicCrop() {
         KeyframeCrop{10.0, 800, 300, 640, 480},
     };
     EncodingOptions e;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
     CHECK(hasSubstr(p[0].args, "crop=640:480:x='"));
@@ -247,6 +254,7 @@ static void testEncodingDefaultsAndAudioMap() {
     CHECK(e.disableAudio == true);
     CHECK(e.threads == 0);
     CHECK(e.targetFps == 0);
+    CHECK(e.twoPass == true);   // two-pass is on by default
 
     CommandBuilder b(info, f, e);
     auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
@@ -257,6 +265,7 @@ static void testEncodingDefaultsAndAudioMap() {
     EncodingOptions e2;
     e2.disableAudio = false;
     e2.audioStreamIndex = 1;
+    e2.twoPass = false;
     CommandBuilder b2(info, f, e2);
     auto p2 = b2.build("/tmp/in.mp4", "/tmp/out.webm");
     CHECK(hasSubstr(p2[0].args, "0:a:1?"));
@@ -271,6 +280,19 @@ static void testOutputDurationWithTrim() {
     CHECK_NEAR(b.outputDuration(), 10.0, 1e-9);
 }
 
+static void testPreviewFilter() {
+    VideoInfo info = sampleInfo();
+    FilterModel f = emptyFilters();
+    CHECK(buildPreviewVideoFilter(f, info, 0.0).empty());
+
+    f.crop = Crop{true, 10, 20, 640, 480};
+    CHECK(buildPreviewVideoFilter(f, info, 0.0).find("crop=640:480:10:20") != std::string::npos);
+
+    FilterModel g = emptyFilters();
+    g.resizeEnabled = true; g.resizeW = 1280; g.resizeH = 720; g.resizeAlgo = "lanczos";
+    CHECK(buildPreviewVideoFilter(g, info, 0.0).find("scale=1280:720:flags=lanczos") != std::string::npos);
+}
+
 static void testBuilderStabilization() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
@@ -278,6 +300,7 @@ static void testBuilderStabilization() {
     f.stabilization.shakiness = 5;
     f.stabilization.accuracy = 15;
     EncodingOptions e;
+    e.twoPass = false;
     CommandBuilder b(info, f, e);
     auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
     CHECK(p.size() == 2);                       // detect pass + encode pass
@@ -315,6 +338,7 @@ int main() {
     testBuilderDynamicCrop();
     testEncodingDefaultsAndAudioMap();
     testOutputDurationWithTrim();
+    testPreviewFilter();
     testBuilderStabilization();
     testBuilderGrid();
 

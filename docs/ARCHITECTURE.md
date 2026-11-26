@@ -1,6 +1,6 @@
 # Architecture
 
-WebM for Lazys is a thin, testable compiler from *editing intent* to an
+WebM for Lintards is a thin, testable compiler from *editing intent* to an
 `ffmpeg` invocation, plus a Qt Widgets shell around it.
 
 The whole design follows from one decision: **the part that is easy to get wrong

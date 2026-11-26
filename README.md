@@ -1,6 +1,6 @@
-# WebM for Lazys
+# WebM for Lintards
 
-**WebM for Lazys** is a Linux-first, cross-platform desktop front-end for `ffmpeg`.
+**WebM for Lintards** is a Linux-first, cross-platform desktop front-end for `ffmpeg`.
 It wraps the fiddly parts of video conversion — trimming, cropping, resizing,
 two-pass encoding, subtitle burn-in, downloads — in a plain Qt 6 Widgets UI so
 you can go from a file (or a URL) to a finished WebM/MP4 in a handful of clicks.

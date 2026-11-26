@@ -1,6 +1,6 @@
 # Licenses
 
-WebM for Lazys itself is MIT-licensed. It depends on Qt 6 at build/link time and
+WebM for Lintards itself is MIT-licensed. It depends on Qt 6 at build/link time and
 on `ffmpeg`, `ffprobe` and `yt-dlp` as separate runtime programs. This file
 summarises those licenses; it is not legal advice.
 

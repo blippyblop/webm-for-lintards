@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=WebM for Lazys
+Name=WebM for Lintards
 GenericName=Video Converter
 Comment=Convert videos to WebM/MP4 with ffmpeg
 Exec=webmconverter-qt %F
