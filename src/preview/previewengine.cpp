@@ -19,6 +19,15 @@ namespace wc {
 
 PreviewEngine::PreviewEngine(QObject* parent)
     : QObject(parent), cache_(new FrameCache) {
+    // Transient, per-engine cache under the system temp dir. It is deleted when
+    // a new input is loaded and when the engine is destroyed (app/dialog close).
+    tempRoot_ = QDir::tempPath() + QStringLiteral("/webmforlintards_preview_") +
+                QString::number(static_cast<qulonglong>(QCoreApplication::applicationPid())) +
+                QLatin1Char('_') +
+                QString::number(reinterpret_cast<quintptr>(this), 16);
+    QDir(tempRoot_).removeRecursively();
+    QDir().mkpath(tempRoot_);
+
     burstTimer_ = new QTimer(this);
     burstTimer_->setSingleShot(true);
     burstTimer_->setInterval(220);
@@ -30,18 +39,24 @@ PreviewEngine::PreviewEngine(QObject* parent)
 PreviewEngine::~PreviewEngine() {
     cancel();
     delete cache_;
+    if (!tempRoot_.isEmpty()) QDir(tempRoot_).removeRecursively();
 }
 
 void PreviewEngine::setSource(const QString& path, const VideoInfo& info) {
     cancel();
+    // New input -> discard the previous file's transient cache.
+    if (!cacheRoot_.isEmpty()) QDir(cacheRoot_).removeRecursively();
+    if (!burstDir_.isEmpty()) QDir(burstDir_).removeRecursively();
+    cacheRoot_.clear();
+    burstDir_.clear();
+
     sourcePath_ = path;
     info_ = info;
     cache_->clear();
     pendingFrame_ = -1;
     expansion_ = 1;
 
-    // Per-source disk cache, keyed by path+size+mtime (like the original's MD5
-    // of the file used to name its .ffindex).
+    // Per-source cache inside the transient temp root, keyed by path+size+mtime.
     const QFileInfo fi(path);
     const QString key = QString::fromLatin1(
         QCryptographicHash::hash((path + QLatin1Char('|') + QString::number(fi.size()) +
@@ -49,17 +64,19 @@ void PreviewEngine::setSource(const QString& path, const VideoInfo& info) {
                                      .toUtf8(),
                                  QCryptographicHash::Md5)
             .toHex());
-    cacheRoot_ = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
-                 QStringLiteral("/frames/") + key;
+    cacheRoot_ = tempRoot_ + QLatin1Char('/') + key;
     QDir().mkpath(cacheRoot_);
 }
 
 void PreviewEngine::clear() {
     cancel();
+    if (!cacheRoot_.isEmpty()) QDir(cacheRoot_).removeRecursively();
+    if (!burstDir_.isEmpty()) QDir(burstDir_).removeRecursively();
     sourcePath_.clear();
     info_ = VideoInfo{};
     cache_->clear();
     cacheRoot_.clear();
+    burstDir_.clear();
 }
 
 void PreviewEngine::clearCache() { cache_->clear(); }
@@ -212,8 +229,7 @@ void PreviewEngine::startBurst(int centerFrame) {
     burstStart_ = start;
     burstCount_ = count;
 
-    burstDir_ = QDir::tempPath() + QStringLiteral("/wc_preview_") +
-                QString::number(static_cast<qulonglong>(QCoreApplication::applicationPid()));
+    burstDir_ = tempRoot_ + QStringLiteral("/burst");
     QDir dir(burstDir_);
     if (!dir.exists()) QDir().mkpath(burstDir_);
     for (const QString& f : dir.entryList({QStringLiteral("f_*.jpg")}, QDir::Files))

@@ -60,6 +60,7 @@ private:
     QString ffmpegPath_ = QStringLiteral("ffmpeg");
     QString sourcePath_;
     VideoInfo info_;
+    QString tempRoot_;           // per-engine transient cache root (removed on exit)
     QString cacheRoot_;          // per-source disk cache directory
     FrameCache* cache_ = nullptr;
     QProcess* proc_ = nullptr;
