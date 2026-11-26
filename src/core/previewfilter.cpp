@@ -63,6 +63,14 @@ std::string buildPreviewVideoFilter(const FilterModel& f, const VideoInfo& info,
     (void)info;   // reserved for future geometry-aware preview decisions
     std::vector<std::string> chain;
 
+    if (f.denoise) {
+        static const char* presets[] = {"hqdn3d=1.5:1.5:6:6", "hqdn3d=2:2:8:8", "hqdn3d=3:3:10:10"};
+        int idx = f.denoiseStrength;
+        if (idx < 0) idx = 0;
+        if (idx > 2) idx = 2;
+        chain.push_back(presets[idx]);
+    }
+
     if (f.crop.enabled && f.crop.w > 0 && f.crop.h > 0) {
         chain.push_back("crop=" + std::to_string(f.crop.w) + ":" + std::to_string(f.crop.h) +
                         ":" + std::to_string(f.crop.x) + ":" + std::to_string(f.crop.y));

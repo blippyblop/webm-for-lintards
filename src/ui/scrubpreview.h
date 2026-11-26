@@ -1,10 +1,15 @@
 #pragma once
-// Reusable scrubbing surface (preview + timeline) embedded by time-based
-// filter dialogs so every time selection can be made by scrubbing.
+// Reusable scrubbing surface (preview + timeline) for filter dialogs. Supports
+// live filter preview, interactive crop overlay, before/after split, and
+// window-wide scrubbing hotkeys.
 
 #include <QWidget>
 #include <QImage>
 #include <QString>
+#include <QSize>
+#include <QRect>
+
+#include <functional>
 
 #include "core/videoinfo.h"
 #include "core/filtermodel.h"
@@ -31,11 +36,29 @@ public:
     void gotoTime(double seconds);
     void gotoFrame(int frame) { gotoTime(info_.timeOfFrame(frame)); }
 
-    // Provide the filter state so scrub frames render with filters applied.
+    // Preview against an external (applied) model.
     void setFilters(const FilterModel* model);
+    // Preview against a dialog-owned copy that the dialog can mutate live.
+    void setEditableModel(const FilterModel& initial);
+    FilterModel& previewModel() { return previewModel_; }
+    void refreshPreview();
+
+    QSize imageSize() const { return lastImageSize_; }
+
+    // Interactive crop overlay.
+    void setCropEditable(bool editable);
+    void setCropRect(const QRect& rect);
+    QRect cropRect() const;
+
+    // Before/after split (raw left, effect right) with a centre divider.
+    void setBeforeAfter(bool on, std::function<QImage(const QImage&)> effect = nullptr);
 
 signals:
     void timeChanged(double seconds);
+    void cropChanged(const QRect& rect);
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void onSeek(double seconds);
@@ -43,14 +66,27 @@ private slots:
     void onFrame(int frame, const QImage& image);
 
 private:
+    void setupProvider();
+    const FilterModel& effectiveModel() const;
+
     PreviewCanvas* canvas_ = nullptr;
     TimelineWidget* timeline_ = nullptr;
     QLabel* label_ = nullptr;
     PreviewEngine* preview_ = nullptr;
+
     VideoInfo info_;
-    const FilterModel* model_ = nullptr;
+    QString sourcePath_;
+    QString ffmpegPath_ = QStringLiteral("ffmpeg");
+
+    const FilterModel* external_ = nullptr;
+    FilterModel previewModel_;
+
     double current_ = 0.0;
     double duration_ = 0.0;
+    QSize lastImageSize_;
+
+    bool beforeAfter_ = false;
+    std::function<QImage(const QImage&)> effect_;
 };
 
 } // namespace wc

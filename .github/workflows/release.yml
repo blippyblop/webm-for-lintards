@@ -13,6 +13,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Create a GitHub Release (leave false to only build test artifacts)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -113,7 +118,8 @@ jobs:
   release:
     name: publish release
     needs: [linux, windows]
-    if: startsWith(github.ref, 'refs/tags/') && needs.linux.result == 'success'
+    # Only publish when explicitly requested via manual dispatch with publish=true.
+    if: startsWith(github.ref, 'refs/tags/') && needs.linux.result == 'success' && github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts

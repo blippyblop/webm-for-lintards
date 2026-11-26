@@ -22,6 +22,7 @@ class QListWidget;
 class QRadioButton;
 class QProgressBar;
 class QPlainTextEdit;
+class QKeyEvent;
 
 namespace wc {
 
@@ -45,6 +46,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent* e) override;
     void dropEvent(QDropEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
+    void keyPressEvent(QKeyEvent* e) override;
 
 private slots:
     void openFile();

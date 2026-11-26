@@ -1,12 +1,16 @@
 #include "ui/dialogs/cropdialog.h"
+#include "ui/scrubpreview.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QSpinBox>
+#include <QTimer>
 
 namespace wc {
 
@@ -22,7 +26,8 @@ int maxHeightFor(const VideoInfo& info) {
 }
 } // namespace
 
-CropDialog::CropDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
+CropDialog::CropDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
+                       const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     setWindowTitle(tr("Crop"));
 
@@ -73,6 +78,41 @@ CropDialog::CropDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
     form->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &CropDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &CropDialog::reject);
+
+    // Scrubbing preview with an interactive crop box. We show the raw frame and
+    // draw crop as an overlay so the box maps directly to source pixel coords.
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    scrub_->setEditableModel(FilterModel{});
+    scrub_->setCropEditable(true);
+    form->insertRow(0, scrub_);
+
+    auto factor = [this]() -> double {
+        const int dw = scrub_->imageSize().width();
+        return (dw > 0 && info_.width > 0) ? static_cast<double>(info_.width) / dw : 1.0;
+    };
+    auto syncOverlay = [this, factor]() {
+        const double f = factor();
+        QRect r(static_cast<int>(std::lround(x_->value() / f)),
+                static_cast<int>(std::lround(y_->value() / f)),
+                std::max(2, static_cast<int>(std::lround(w_->value() / f))),
+                std::max(2, static_cast<int>(std::lround(h_->value() / f))));
+        scrub_->setCropRect(r);
+    };
+    connect(scrub_, &ScrubPreview::cropChanged, this, [this, factor](const QRect& r) {
+        const double f = factor();
+        QSignalBlocker bx(x_), by(y_), bw(w_), bh(h_);
+        x_->setValue(static_cast<int>(std::lround(r.x() * f)));
+        y_->setValue(static_cast<int>(std::lround(r.y() * f)));
+        w_->setValue(std::max(2, static_cast<int>(std::lround(r.width() * f))));
+        h_->setValue(std::max(2, static_cast<int>(std::lround(r.height() * f))));
+        if (!enable_->isChecked()) enable_->setChecked(true);
+    });
+    for (QSpinBox* sp : {x_, y_, w_, h_})
+        connect(sp, &QSpinBox::valueChanged, this, [syncOverlay](int) { syncOverlay(); });
+    QTimer::singleShot(600, this, syncOverlay);
+
+    resize(900, 780);
 
     const auto updateEnabled = [this](bool on) {
         x_->setEnabled(on);

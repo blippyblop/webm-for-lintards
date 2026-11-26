@@ -62,6 +62,7 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QDialog>
+#include <QKeyEvent>
 
 #include <algorithm>
 
@@ -69,10 +70,8 @@ namespace wc {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     probe_ = new MediaProbe(ffprobePath_);
+    // Main-window preview stays RAW; filter previews live in the filter popups.
     preview_ = new PreviewEngine(this);
-    preview_->setFilterProvider([this](double t) -> QString {
-        return QString::fromStdString(buildPreviewVideoFilter(filters_, info_, t));
-    });
     encoder_ = new Encoder(this);
     ytdlp_ = new YtdlpRunner(this);
 
@@ -494,17 +493,17 @@ void MainWindow::onFilterClicked(FilterKind kind) {
     switch (kind) {
         case FilterKind::Trim: { TrimDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::MultiTrim: { MultiTrimDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
-        case FilterKind::Crop: { CropDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Crop: { CropDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Resize: { ResizeDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::Rotate: { RotateDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Rotate: { RotateDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Rate: { RateDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::DynamicRate: { DynamicRateDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Caption: { CaptionDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Subtitle: { SubtitleDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Overlay: { OverlayDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Fade: { FadeDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
-        case FilterKind::Eq: { EqDialog d(filters_, info_, this); run(d); } break;
-        case FilterKind::Denoise: { DenoiseDialog d(filters_, info_, this); run(d); } break;
+        case FilterKind::Eq: { EqDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
+        case FilterKind::Denoise: { DenoiseDialog d(filters_, info_, this, inputPath_, ffmpegPath_); run(d); } break;
         case FilterKind::Deinterlace: { DeinterlaceDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::Stabilization: { StabilizationDialog d(filters_, info_, this); run(d); } break;
         case FilterKind::DelayAudio: { DelayAudioDialog d(filters_, info_, this); run(d); } break;
@@ -823,6 +822,17 @@ void MainWindow::dropEvent(QDropEvent* e) {
 void MainWindow::closeEvent(QCloseEvent* e) {
     saveSettings();
     QMainWindow::closeEvent(e);
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* e) {
+    switch (e->key()) {
+        case Qt::Key_Left:  onFrameStep(-1); return;
+        case Qt::Key_Right: onFrameStep(1);  return;
+        case Qt::Key_PageUp:   onFrameStep(-5); return;
+        case Qt::Key_PageDown: onFrameStep(5);  return;
+        default: break;
+    }
+    QMainWindow::keyPressEvent(e);
 }
 
 } // namespace wc

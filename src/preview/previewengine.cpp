@@ -93,17 +93,23 @@ void PreviewEngine::startDecode(int frame, bool forDisplay) {
     proc_->setProgram(ffmpegPath_);
 
     QStringList args;
-    args << "-ss" << QString::number(info_.timeOfFrame(frame), 'f', 6)
+    args << "-loglevel" << "error"
+         << "-ss" << QString::number(info_.timeOfFrame(frame), 'f', 6)
          << "-i" << sourcePath_;
 
-    if (filterProvider_) {
-        const QString vf = filterProvider_(info_.timeOfFrame(frame));
-        if (!vf.isEmpty()) args << "-vf" << vf;
+    QString vf;
+    if (filterProvider_) vf = filterProvider_(info_.timeOfFrame(frame));
+    // Cap preview resolution: hugely cheaper to decode/encode/paint.
+    if (info_.width > 1280) {
+        if (!vf.isEmpty()) vf += QLatin1Char(',');
+        vf += QStringLiteral("scale=1280:-2");
     }
+    if (!vf.isEmpty()) args << "-vf" << vf;
 
     args << "-frames:v" << "1"
          << "-f" << "image2pipe"
-         << "-vcodec" << "png"
+         << "-vcodec" << "mjpeg"
+         << "-q:v" << "4"
          << "-";
     proc_->setArguments(args);
     proc_->setProcessChannelMode(QProcess::SeparateChannels);
@@ -126,7 +132,7 @@ void PreviewEngine::onProcFinished(int exitCode, QProcess::ExitStatus status) {
     busy_ = false;
 
     if (status == QProcess::NormalExit && exitCode == 0 && !data.isEmpty()) {
-        QImage img = QImage::fromData(data, "PNG");
+        QImage img = QImage::fromData(data, "JPEG");
         if (!img.isNull()) {
             cache_->insert(decodedFrame, img);
             if (wasDisplay) emit frameReady(decodedFrame, img);

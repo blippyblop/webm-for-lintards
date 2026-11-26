@@ -1,4 +1,5 @@
 #include "ui/dialogs/eqdialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -8,7 +9,8 @@
 
 namespace wc {
 
-EqDialog::EqDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
+EqDialog::EqDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
+                   const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     Q_UNUSED(info_);
     setWindowTitle(tr("Equalizer"));
@@ -54,6 +56,25 @@ EqDialog::EqDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
     layout->addWidget(enableCheck_);
     layout->addLayout(form);
     layout->addWidget(buttons);
+
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    scrub_->setEditableModel(model_);
+    layout->insertWidget(0, scrub_);
+
+    auto syncPreview = [this]() {
+        EqFilter& e = scrub_->previewModel().eq;
+        e.enabled = enableCheck_->isChecked();
+        e.gamma = gammaSpin_->value();
+        e.saturation = saturationSpin_->value();
+        e.contrast = contrastSpin_->value();
+        scrub_->refreshPreview();
+    };
+    connect(enableCheck_, &QCheckBox::toggled, this, [syncPreview](bool) { syncPreview(); });
+    connect(gammaSpin_, &QDoubleSpinBox::valueChanged, this, [syncPreview](double) { syncPreview(); });
+    connect(saturationSpin_, &QDoubleSpinBox::valueChanged, this, [syncPreview](double) { syncPreview(); });
+    connect(contrastSpin_, &QDoubleSpinBox::valueChanged, this, [syncPreview](double) { syncPreview(); });
+    resize(900, 780);
 }
 
 void EqDialog::accept() {

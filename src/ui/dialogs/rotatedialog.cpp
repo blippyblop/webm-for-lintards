@@ -1,4 +1,5 @@
 #include "ui/dialogs/rotatedialog.h"
+#include "ui/scrubpreview.h"
 
 #include <QButtonGroup>
 #include <QDialogButtonBox>
@@ -8,7 +9,8 @@
 
 namespace wc {
 
-RotateDialog::RotateDialog(FilterModel& model, const VideoInfo& info, QWidget* parent)
+RotateDialog::RotateDialog(FilterModel& model, const VideoInfo& info, QWidget* parent,
+                           const QString& inputPath, const QString& ffmpegPath)
     : QDialog(parent), model_(model), info_(info) {
     setWindowTitle(tr("Rotate"));
 
@@ -57,6 +59,16 @@ RotateDialog::RotateDialog(FilterModel& model, const VideoInfo& info, QWidget* p
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &RotateDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &RotateDialog::reject);
+
+    scrub_ = new ScrubPreview(this);
+    if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
+    scrub_->setEditableModel(model_);
+    layout->insertWidget(0, scrub_);
+    connect(group_, &QButtonGroup::idClicked, this, [this](int id) {
+        scrub_->previewModel().rotateDegrees = (id == 90 || id == 180 || id == 270) ? id : 0;
+        scrub_->refreshPreview();
+    });
+    resize(900, 760);
 }
 
 void RotateDialog::accept() {
