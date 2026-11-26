@@ -30,6 +30,9 @@ public:
 
     void accept() override;
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
 private slots:
     void onSeek(double seconds);
     void onFrameStep(int delta);

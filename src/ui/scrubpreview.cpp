@@ -202,11 +202,11 @@ bool ScrubPreview::eventFilter(QObject* obj, QEvent* event) {
     if (event->type() == QEvent::KeyPress) {
         if (QApplication::activeWindow() == window()) {
             QWidget* fw = QApplication::focusWidget();
-            const bool editing = qobject_cast<QAbstractSpinBox*>(fw) ||
-                                 qobject_cast<QLineEdit*>(fw) ||
-                                 qobject_cast<QPlainTextEdit*>(fw) ||
-                                 qobject_cast<QTextEdit*>(fw);
-            if (!editing) {
+            // Hotkeys work wherever focus is in the popup, except while typing in
+            // a multi-line text box (where arrows move the caret).
+            const bool textEditing = qobject_cast<QPlainTextEdit*>(fw) ||
+                                     qobject_cast<QTextEdit*>(fw);
+            if (!textEditing) {
                 auto* ke = static_cast<QKeyEvent*>(event);
                 int delta = 0;
                 switch (ke->key()) {

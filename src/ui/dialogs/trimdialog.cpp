@@ -7,6 +7,8 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QApplication>
+#include <QKeyEvent>
 #include <QSpinBox>
 #include <QCheckBox>
 #include <QLabel>
@@ -133,11 +135,34 @@ TrimDialog::TrimDialog(FilterModel& model, const VideoInfo& info, QWidget* paren
 
     updateRangeUi();
     gotoFrame(sFrame);
+
+    // Window-wide scrubbing hotkeys (work regardless of which control has focus).
+    qApp->installEventFilter(this);
 }
 
 TrimDialog::~TrimDialog() {
+    if (qApp) qApp->removeEventFilter(this);
     if (playTimer_) playTimer_->stop();
     if (preview_) preview_->cancel();
+}
+
+bool TrimDialog::eventFilter(QObject* obj, QEvent* event) {
+    if (event->type() == QEvent::KeyPress && QApplication::activeWindow() == this) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        int delta = 0;
+        switch (ke->key()) {
+            case Qt::Key_Left: delta = -1; break;
+            case Qt::Key_Right: delta = 1; break;
+            case Qt::Key_PageUp: delta = -5; break;
+            case Qt::Key_PageDown: delta = 5; break;
+            default: break;
+        }
+        if (delta != 0) {
+            gotoFrame(currentFrameIndex_ + delta);
+            return true;
+        }
+    }
+    return QDialog::eventFilter(obj, event);
 }
 
 int TrimDialog::maxFrame() const {
