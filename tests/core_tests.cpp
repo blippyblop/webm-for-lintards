@@ -32,6 +32,11 @@ static bool hasToken(const std::vector<std::string>& v, const std::string& s) {
     for (const auto& t : v) if (t == s) return true;
     return false;
 }
+static int countCharInArgs(const std::vector<std::string>& v, char c) {
+    int n = 0;
+    for (const auto& t : v) for (char x : t) if (x == c) ++n;
+    return n;
+}
 static bool hasSubstr(const std::vector<std::string>& v, const std::string& s) {
     for (const auto& t : v) if (t.find(s) != std::string::npos) return true;
     return false;
@@ -318,6 +323,46 @@ static void testDynamicRateExpression() {
     CHECK(hasSubstr(p2[0].args, "lte(T,"));
 }
 
+static void testFilterInjectionSanitised() {
+    VideoInfo info = sampleInfo();
+    FilterModel f = emptyFilters();
+
+    f.resizeEnabled = true; f.resizeW = 100; f.resizeH = 100;
+    f.resizeAlgo = "lanczos,drawtext=text=pwn";
+    f.caption.enabled = true;
+    f.caption.text = "a'b'c";                 // quote breakout attempt
+    f.caption.color = "red:x=1";              // option injection attempt
+    f.caption.borderColor = "black,";
+    f.subtitle.enabled = true;
+    f.subtitle.path = "/tmp/s.srt':movie=/tmp/pwn";
+    f.overlay.enabled = true;
+    f.overlay.imagePath = "/tmp/o.png':drawtext=text=pwn";
+
+    EncodingOptions e; e.twoPass = false; e.sizeLimitBytes = 0;
+    CommandBuilder b(info, f, e);
+    auto p = b.build("/tmp/in.mp4", "/tmp/out.webm");
+    const auto& a = p[0].args;
+
+    CHECK(hasSubstr(a, "flags=bicubic"));        // invalid algo -> bicubic
+    CHECK(hasSubstr(a, "fontcolor=white"));      // invalid colour -> white
+    CHECK(hasSubstr(a, "bordercolor=black"));
+    CHECK(countCharInArgs(a, '\'') == 2);        // only our text quotes; no breakout
+    CHECK(!hasSubstr(a, "subtitles="));          // unsafe path dropped
+    CHECK(!hasSubstr(a, "movie="));              // unsafe overlay path dropped
+
+    // Safe variants are still kept.
+    FilterModel g = emptyFilters();
+    g.subtitle.enabled = true;
+    g.subtitle.path = "/tmp/ok.srt";
+    FilterModel h = emptyFilters();
+    h.resizeEnabled = true; h.resizeW = 100; h.resizeH = 100; h.resizeAlgo = "lanczos";
+    h.eq.enabled = true; h.eq.gamma = 1.2;
+    CommandBuilder b2(info, g, e);
+    CHECK(hasSubstr(b2.build("/tmp/in.mp4", "/tmp/out.webm")[0].args, "subtitles="));
+    CommandBuilder b3(info, h, e);
+    CHECK(hasSubstr(b3.build("/tmp/in.mp4", "/tmp/out.webm")[0].args, "flags=lanczos"));
+}
+
 static void testBuilderStabilization() {
     VideoInfo info = sampleInfo();
     FilterModel f = emptyFilters();
@@ -365,6 +410,7 @@ int main() {
     testOutputDurationWithTrim();
     testPreviewFilter();
     testDynamicRateExpression();
+    testFilterInjectionSanitised();
     testBuilderStabilization();
     testBuilderGrid();
 

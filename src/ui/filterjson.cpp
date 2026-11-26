@@ -183,16 +183,22 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
     if (o.contains("crop") && o["crop"].isObject()) {
         const QJsonObject c = o["crop"].toObject();
         m.crop.enabled = rb(c, "enabled", true);   // presence implies active
-        m.crop.x = ri(c, "x", 0); m.crop.y = ri(c, "y", 0);
-        m.crop.w = ri(c, "w", 0); m.crop.h = ri(c, "h", 0);
+        m.crop.x = std::clamp(ri(c, "x", 0), 0, 32768);
+        m.crop.y = std::clamp(ri(c, "y", 0), 0, 32768);
+        m.crop.w = std::clamp(ri(c, "w", 0), 0, 32768);
+        m.crop.h = std::clamp(ri(c, "h", 0), 0, 32768);
     }
     if (o.contains("dynamicCrop") && o["dynamicCrop"].isObject()) {
         const QJsonObject d = o["dynamicCrop"].toObject();
         m.dynamicCrop.enabled = rb(d, "enabled", true);
         m.dynamicCrop.w = ri(d, "w", 0); m.dynamicCrop.h = ri(d, "h", 0);
         for (const QJsonValue& v : d["keyframes"].toArray()) {
+            if (m.dynamicCrop.keyframes.size() >= 2000) break;
             const QJsonObject k = v.toObject();
-            m.dynamicCrop.keyframes.push_back(KeyframeCrop{rd(k, "time", 0.0), ri(k, "x", 0), ri(k, "y", 0), ri(k, "w", 0), ri(k, "h", 0)});
+            m.dynamicCrop.keyframes.push_back(KeyframeCrop{
+                std::max(0.0, rd(k, "time", 0.0)),
+                std::clamp(ri(k, "x", 0), 0, 32768), std::clamp(ri(k, "y", 0), 0, 32768),
+                std::clamp(ri(k, "w", 0), 0, 32768), std::clamp(ri(k, "h", 0), 0, 32768)});
         }
     }
     if (o.contains("resize") && o["resize"].isObject()) {
@@ -254,14 +260,15 @@ bool filterFromJson(const QJsonObject& o, FilterModel& f, QString* error) {
     if (o.contains("fade") && o["fade"].isObject()) {
         const QJsonObject v = o["fade"].toObject();
         m.fade.enabled = rb(v, "enabled", true);
-        m.fade.inDuration = rd(v, "in", 0.0); m.fade.outDuration = rd(v, "out", 0.0);
+        m.fade.inDuration = std::clamp(rd(v, "in", 0.0), 0.0, 1e6);
+        m.fade.outDuration = std::clamp(rd(v, "out", 0.0), 0.0, 1e6);
     }
     if (o.contains("eq") && o["eq"].isObject()) {
         const QJsonObject v = o["eq"].toObject();
         m.eq.enabled = rb(v, "enabled", true);
-        m.eq.gamma = rd(v, "gamma", 1.0);
-        m.eq.saturation = rd(v, "saturation", 1.0);
-        m.eq.contrast = rd(v, "contrast", 1.0);
+        m.eq.gamma = std::clamp(rd(v, "gamma", 1.0), 0.1, 10.0);
+        m.eq.saturation = std::clamp(rd(v, "saturation", 1.0), 0.0, 4.0);
+        m.eq.contrast = std::clamp(rd(v, "contrast", 1.0), 0.5, 2.0);
     }
     m.denoise = rb(o, "denoise", false);
     m.denoiseStrength = std::clamp(ri(o, "denoiseStrength", 0), 0, 2);

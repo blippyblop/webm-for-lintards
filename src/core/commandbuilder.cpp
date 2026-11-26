@@ -317,8 +317,10 @@ std::string CommandBuilder::videoFilterGraph() const {
     if (f_.deinterlace) chain.emplace_back("yadif");
 
     if (f_.crop.enabled && f_.crop.w > 0 && f_.crop.h > 0) {
-        chain.push_back("crop=" + std::to_string(f_.crop.w) + ":" + std::to_string(f_.crop.h) +
-                        ":" + std::to_string(f_.crop.x) + ":" + std::to_string(f_.crop.y));
+        chain.push_back("crop=" + std::to_string(std::clamp(f_.crop.w, 2, 32768)) + ":" +
+                        std::to_string(std::clamp(f_.crop.h, 2, 32768)) + ":" +
+                        std::to_string(std::clamp(f_.crop.x, 0, 32768)) + ":" +
+                        std::to_string(std::clamp(f_.crop.y, 0, 32768)));
     }
 
     if (f_.dynamicCrop.enabled && f_.dynamicCrop.keyframes.size() >= 2) {
@@ -329,7 +331,8 @@ std::string CommandBuilder::videoFilterGraph() const {
         }
         const int w = f_.dynamicCrop.w > 0 ? f_.dynamicCrop.w : f_.dynamicCrop.keyframes.front().w;
         const int h = f_.dynamicCrop.h > 0 ? f_.dynamicCrop.h : f_.dynamicCrop.keyframes.front().h;
-        chain.push_back("crop=" + std::to_string(w) + ":" + std::to_string(h) +
+        chain.push_back("crop=" + std::to_string(std::clamp(w, 2, 32768)) + ":" +
+                        std::to_string(std::clamp(h, 2, 32768)) +
                         ":x='" + piecewiseLinear(xs) + "':y='" + piecewiseLinear(ys) + "'");
     }
 
@@ -355,8 +358,9 @@ std::string CommandBuilder::videoFilterGraph() const {
     }
 
     if (f_.eq.enabled) {
-        chain.push_back("eq=gamma=" + num(f_.eq.gamma) + ":saturation=" + num(f_.eq.saturation) +
-                        ":contrast=" + num(f_.eq.contrast));
+        chain.push_back("eq=gamma=" + num(std::clamp(f_.eq.gamma, 0.1, 10.0)) +
+                        ":saturation=" + num(std::clamp(f_.eq.saturation, 0.0, 4.0)) +
+                        ":contrast=" + num(std::clamp(f_.eq.contrast, 0.5, 2.0)));
     }
 
     if (f_.subtitle.enabled && safeFilterPath(f_.subtitle.path)) {
@@ -368,9 +372,10 @@ std::string CommandBuilder::videoFilterGraph() const {
         const std::string border = safeColor(f_.caption.borderColor).empty() ? "black" : safeColor(f_.caption.borderColor);
         std::string d = "drawtext=text='" + escapeDrawtext(stripControls(f_.caption.text)) + "'";
         d += ":fontcolor=" + color;
-        d += ":fontsize=" + std::to_string(f_.caption.fontSize);
+        d += ":fontsize=" + std::to_string(std::clamp(f_.caption.fontSize, 1, 1000));
         d += ":borderw=2:bordercolor=" + border;
-        d += ":x=" + std::to_string(f_.caption.x) + ":y=" + std::to_string(f_.caption.y);
+        d += ":x=" + std::to_string(std::clamp(f_.caption.x, -100000, 100000)) +
+             ":y=" + std::to_string(std::clamp(f_.caption.y, -100000, 100000));
         if (f_.caption.end > f_.caption.start) {
             d += ":enable='between(t," + num(f_.caption.start) + "," + num(f_.caption.end) + ")'";
         }
@@ -380,9 +385,9 @@ std::string CommandBuilder::videoFilterGraph() const {
     if (f_.fade.enabled) {
         const double dur = clipDuration();
         if (f_.fade.inDuration > 0)
-            chain.push_back("fade=t=in:st=0:d=" + num(f_.fade.inDuration));
+            chain.push_back("fade=t=in:st=0:d=" + num(std::max(0.0, f_.fade.inDuration)));
         if (f_.fade.outDuration > 0) {
-            double st = dur - f_.fade.outDuration;
+            double st = dur - std::max(0.0, f_.fade.outDuration);
             if (st < 0) st = 0;
             chain.push_back("fade=t=out:st=" + num(st) + ":d=" + num(f_.fade.outDuration));
         }
