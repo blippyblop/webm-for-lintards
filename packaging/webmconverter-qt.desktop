@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=WebM for Lazys
+GenericName=Video Converter
+Comment=Convert videos to WebM/MP4 with ffmpeg
+Exec=webmconverter-qt %F
+Icon=io.github.webmforlazies.webmconverter
+Terminal=false
+Categories=AudioVideo;Video;Qt;
+MimeType=video/x-matroska;video/webm;video/mp4;
+Keywords=webm;mp4;video;convert;ffmpeg;encoder;
+StartupNotify=true

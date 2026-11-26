@@ -1,0 +1,17 @@
+build/
+build-*/
+*.o
+*.obj
+*.so
+*.dylib
+*.exe
+*.user
+*.autosave
+.idea/
+.vscode/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.2pass*
+*.log

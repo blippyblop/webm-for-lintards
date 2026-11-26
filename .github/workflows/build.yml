@@ -1,0 +1,53 @@
+# CI for webmconverter-qt (Qt 6 / C++17).
+# ffmpeg, ffprobe and yt-dlp are RUNTIME-ONLY dependencies: they are not
+# installed here because they are not needed to configure, build or test the
+# project. Tests must not hard-fail when those tools are absent.
+
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      - name: Upload binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmconverter-qt-${{ matrix.os }}
+          path: |
+            build/webmconverter-qt
+            build/webmconverter-qt.exe
+            build/Release/webmconverter-qt
+            build/Release/webmconverter-qt.exe
+          if-no-files-found: ignore

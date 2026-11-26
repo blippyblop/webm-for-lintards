@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="WebM for Lazys">
+  <title>WebM for Lazys</title>
+  <desc>Rounded square with film strip, play button and the letters WEBM</desc>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="#1b2a3a"/>
+  <rect x="6" y="6" width="244" height="244" rx="52" ry="52" fill="none" stroke="#2f4a66" stroke-width="4"/>
+
+  <!-- Top film strip -->
+  <rect x="30" y="34" width="196" height="26" rx="5" ry="5" fill="#33475e"/>
+  <g fill="#101a24">
+    <rect x="37" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="63" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="89" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="115" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="141" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="167" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="193" y="41" width="14" height="12" rx="2" ry="2"/>
+    <rect x="219" y="41" width="2" height="12" rx="1" ry="1"/>
+  </g>
+
+  <!-- Bottom film strip -->
+  <rect x="30" y="196" width="196" height="26" rx="5" ry="5" fill="#33475e"/>
+  <g fill="#101a24">
+    <rect x="37" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="63" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="89" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="115" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="141" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="167" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="193" y="203" width="14" height="12" rx="2" ry="2"/>
+    <rect x="219" y="203" width="2" height="12" rx="1" ry="1"/>
+  </g>
+
+  <!-- Play button -->
+  <circle cx="128" cy="122" r="42" fill="#e4572e"/>
+  <path d="M113 101 L113 143 L149 122 Z" fill="#ffffff"/>
+
+  <!-- Wordmark -->
+  <text x="128" y="186" text-anchor="middle" font-family="DejaVu Sans, Verdana, Helvetica, sans-serif" font-size="24" font-weight="700" letter-spacing="2" fill="#cfe3f7">WEBM</text>
+</svg>
