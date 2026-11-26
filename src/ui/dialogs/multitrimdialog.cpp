@@ -41,7 +41,6 @@ MultiTrimDialog::MultiTrimDialog(FilterModel& model, const VideoInfo& info, QWid
     scrub_ = new ScrubPreview(this);
     if (!inputPath.isEmpty()) scrub_->setSource(inputPath, info_, ffmpegPath);
     scrub_->setFilters(&model_);
-    scrub_->setFilters(&model_);
     layout->addWidget(scrub_);
 
     if (info_.durationSeconds > 0.0) {
